@@ -1,0 +1,112 @@
+---
+title: "Species Abundances"
+author: "Elisabeth Nelson"
+date: "2022-09-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+pacman::p_load(
+  lubridate,  # general package for handling and converting dates  
+  linelist,   # has function to "guess" messy dates
+  aweek,      # another option for converting dates to weeks, and weeks to dates
+  zoo,        # additional date/time functions
+  tidyverse,  # data management and visualization  
+  rio, #importing data
+  here, #relative file pathways
+  janitor, #data cleaning and tables
+  epikit) #ag_categories function
+library(ggplot2)
+library(stats); library(splines); library(gam); library(dlnm)
+```
+
+
+## Total Species Abundances 
+```{r}
+
+species_table <- core_traps_ff %>%
+  select(Species, Date, X..Mosquitoes) %>%
+  rename("species" = Species, 
+         "date" = Date, 
+         "num_caught" =  X..Mosquitoes)
+
+species_by_year <- species_table %>%
+  group_by(species) %>%
+  summarize(num_caught = sum(num_caught))
+
+species_by_year %>%
+ggplot(aes(x = species, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+
+cxp_cxr_table <- species_table %>%
+  mutate(species = as.character(species)) %>%
+  filter(species == "culex pipiens" | species == "culex restuans") %>%
+  group_by(species, year(date)) %>%
+  mutate(year_total = sum(num_caught))
+
+ggplot(cxp_cxr_table, aes(x = year(date), y = year_total, group = species, col = species ))+
+  geom_line()+
+  #facet_wrap(~species, scales = 'free_y')+
+  theme_classic()
+
+```
+
+## Culex pipiens Abundance by Year
+```{r}
+
+culex_pipiens <- species_table %>%
+  filter(species == "culex pipiens")
+culex_pipiens
+str(culex_pipiens)
+
+culex_pipiens_years <- culex_pipiens %>%
+  group_by(year(date)) %>%
+  summarize(num_caught = sum(num_caught))
+
+colnames(culex_pipiens_years) <- c("year", "num_caught")
+
+culex_pipiens_years %>%
+ggplot(aes(x = year, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Culex restuans Abundance by Year
+```{r}
+culex_restuans <- species_table %>%
+  filter(species == "culex restuans")
+culex_restuans
+str(culex_restuans)
+
+culex_restuans_years <- culex_restuans %>%
+  group_by(year(date)) %>%
+  summarize(num_caught = sum(num_caught))
+
+colnames(culex_restuans_years) <- c("year", "num_caught")
+
+culex_restuans_years %>%
+ggplot(aes(x = year, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+
+fit1 <- glm(num_caught ~ year+ns(Date, df = 2*20), 
+            data = culex_restuans_years, 
+            family = quasipoisson)
+```
+
+## Time Series
+```{r}
+
+fit1 <- glm()
+
+
+```
+

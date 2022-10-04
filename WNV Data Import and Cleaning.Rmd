@@ -1,0 +1,178 @@
+---
+title: "WNV Data Import and Cleaning"
+author: "Elisabeth Nelson"
+date: "2022-09-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setting Libraries
+
+```{r}
+library(dplyr)
+library(readr)
+pacman::p_load(
+  lubridate,  # general package for handling and converting dates  
+  linelist,   # has function to "guess" messy dates
+  aweek,      # another option for converting dates to weeks, and weeks to dates
+  zoo,        # additional date/time functions
+  tidyverse,  # data management and visualization  
+  rio, #importing data
+  here, #relative file pathways
+  janitor, #data cleaning and tables
+  epikit) #ag_categories function
+
+
+```
+
+## WNV Mosquito Data
+
+
+```{r}
+#import and merge all CSV files into one data frame
+Cumulatve_Arbovirus_Survey_2001_to_2005 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2001 to 2005 .csv", sep = ",", header = TRUE)
+
+Cumulative_Arbovirus_Survey_2006_to_2009 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2006 to 2009.csv", sep = ",", header = TRUE)
+
+Cumulative_Arbovirus_Survey_2010_to_2012 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2010 to 2012.csv", sep = ",", header = TRUE)
+
+Cumulative_Arbovirus_Survey_2013_to_2016 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2013 to 2016.csv", sep = ",", header = TRUE)
+
+Cumulative_Arbovirus_Survey_2017_to_2019 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2017 to 2019.csv", sep = ",", header = TRUE)
+
+Cumulative_Arbovirus_Survey_2020_to_2021 <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/mozzie data/Cumulative Arbovirus Survey 2020 to 2021.csv", sep = ",", header = TRUE)
+
+WNV_2001_to_2021_df <- rbind(Cumulatve_Arbovirus_Survey_2001_to_2005, 
+                             Cumulative_Arbovirus_Survey_2006_to_2009, 
+                             Cumulative_Arbovirus_Survey_2010_to_2012, 
+                             Cumulative_Arbovirus_Survey_2013_to_2016,  
+                             Cumulative_Arbovirus_Survey_2017_to_2019, 
+                             Cumulative_Arbovirus_Survey_2020_to_2021)
+
+#change the variable structure and makes species' names all lower case
+WNV_2001_to_2021_df <- WNV_2001_to_2021_df %>%
+  mutate(Species = tolower(Species)) %>%
+  mutate(Species = as.factor(Species)) %>%
+  mutate(Site = as.factor(Site)) %>%
+  mutate(Town = as.factor(Town)) %>%
+  mutate(County = as.factor(County)) %>%
+  mutate(Trap.Type = as.factor(Trap.Type)) %>%
+  mutate(Date = as.Date(Date, "%d-%b-%y")) %>%
+  mutate(Virus = as.factor(Virus)) 
+
+str(WNV_2001_to_2021_df)
+
+
+#look at species' sums
+species_table <- WNV_2001_to_2021_df %>%
+  group_by(Species) %>%
+  summarize(num_caught = sum(X..Mosquitoes)) 
+species_table <- tibble(species_table)
+species_table
+
+
+#look at trap frequencies 
+summary(WNV_2001_to_2021_df$Site)
+
+trap_table <- table(WNV_2001_to_2021_df$Site)
+trap_table
+
+trap_table <- WNV_2001_to_2021_df %>%
+  group_by(Site) %>%
+  summarize(num_caught = sum(X..Mosquitoes))
+trap_table
+
+## create df of only core traps
+library(readr)
+Coordinates_PRISM <- read_csv("Data/Confidential/Coordinates_PRISM.csv", 
+    col_names = FALSE, col_types = cols(`41.44513` = col_number(), 
+        `-72.99815` = col_number()))
+
+Coordinates_PRISM <- Coordinates_PRISM #%>%
+  #mutate(X3 = as.factor(X3))
+  #mutate(X3 = as.character(X3))
+core_traps_list <- Coordinates_PRISM$X3
+core_traps_list
+core_traps <- WNV_2001_to_2021_df  %>%
+  mutate(Site = as.character(Site)) %>%
+  filter(Site %in% core_traps_list) %>%
+  mutate(Site = as.factor(Site))
+
+#str(core_traps)
+
+
+
+## fix trap frequencies
+core_traps_ff <- core_traps
+
+core_traps_ff <- core_traps_ff %>%
+  arrange(Site, Species, Date) %>%
+  group_by(Site,Species) %>%
+  mutate(lag_date = lag(Date,1) ,
+         sampleN=row_number(),
+         sample_interval = as.numeric(Date - lag_date),
+         sample_interval = if_else(sample_interval==0, 99,sample_interval)) %>%
+  filter(sample_interval>=7)
+
+```
+
+## Land Cover Data
+
+
+```{r}
+# Import trap geo-coordinate and land-cover data 
+trap_location_land_cover <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/CT Location with Habitat Description.csv", sep = ",", header = TRUE)
+  
+# change the formatting
+trap_location_land_cover <- trap_location_land_cover %>%
+  mutate(Location = as.factor(Location)) %>%
+  mutate(City = as.factor(City)) %>%
+  mutate(County = as.factor(County)) %>%
+  mutate(Type.of.Collection.Site = as.factor(Type.of.Collection.Site)) 
+  
+str(trap_location_land_cover)
+
+# group by type of land cover
+swamp_traps <- #include cedar swamp, swamp/marsh
+park_traps <- 
+rural_traps <- #include horse stable
+school_traps <- 
+coastal_traps <- 
+# G37 is on a naval base
+
+
+```
+
+## Climate Data
+
+```{r}
+#Import climate data from PRISM for trap locations 01/01/01-10/31/21
+trap_climate <- read_csv("Data/Confidential/PRISM weather data.csv", 
+                              col_types = cols(Longitude = col_number(), 
+                              Latitude = col_number(), `Elevation (ft)` = col_number(), 
+                              Date = col_date(format = "%Y-%m-%d"), 
+                              `ppt (inches)` = col_number(), `tmin (degrees F)` = col_number(), 
+                              `tmean (degrees F)` = col_number(), 
+                              `tmax (degrees F)` = col_number(), 
+                              `tdmean (degrees F)` = col_number()))
+
+#format traps at categories
+trap_climate <- trap_climate %>%
+            mutate(Name = as.factor(Name))
+str(trap_climate)
+```
+
+
+## Combine Climate and Case Data
+```{r}
+
+#core_traps_climate <- left_join(core_traps_ff, trap_climate, by = c("Site" = "Name"), na.rm = TRUE)
+
+```
+
+
+
+
