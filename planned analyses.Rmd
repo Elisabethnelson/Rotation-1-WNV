@@ -1,0 +1,227 @@
+---
+title: "Planned Analyses"
+author: "Elisabeth Nelson"
+date: "2022-10-05"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+pacman::p_load(
+  lubridate,  # general package for handling and converting dates  
+  linelist,   # has function to "guess" messy dates
+  aweek,      # another option for converting dates to weeks, and weeks to dates
+  zoo,        # additional date/time functions
+  tidyverse,  # data management and visualization  
+  rio, #importing data
+  here, #relative file pathways
+  janitor, #data cleaning and tables
+  epikit) #ag_categories function
+library(ggplot2)
+library(stats); library(splines); library(gam); library(dlnm)
+
+```
+
+
+## Species Density vs. Climate
+```{r}
+
+#	number of mosquitoes by trap due to weather  Poisson
+#	Looking at phenology of the mosquito and seasonal dynamics in relation to weather variables to understand 
+#	entomological indices of risk in relation to weather variables 
+#	vs. WNV positivity (as a function of number caught, seasonality)
+
+species_table <- core_traps_ff %>%
+  select(Species, Date, X..Mosquitoes) %>%
+  rename("species" = Species, 
+         "date" = Date, 
+         "num_caught" =  X..Mosquitoes)
+
+species_by_year <- species_table %>%
+  group_by(species) %>%
+  summarize(num_caught = sum(num_caught))
+
+species_by_year %>%
+ggplot(aes(x = species, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+
+
+```
+
+## First WNV Positive and Predictors 
+```{r}
+#	Descriptive stats (survival model) --> first day of WNV each year 
+#	Days since June 1st (don’t start trapping on the same day every year)
+#	Weather
+#	Spatial shift between sites/state
+
+# create a new column of days since June 1st for 1st WNV+, do for overall, cx pipiens, and cx restuans
+
+
+```
+
+## Culex pipiens populations vs. WNV activity
+```{r}
+#	Longitudinal analysis 
+#	Growth curve 
+
+# abundance bar plot
+culex_pipiens <- species_table %>%
+  filter(species == "culex pipiens")
+
+culex_pipiens_years <- culex_pipiens %>%
+  group_by(year(date)) %>%
+  summarize(num_caught = sum(num_caught))
+
+colnames(culex_pipiens_years) <- c("year", "num_caught")
+
+culex_pipiens_years %>%
+ggplot(aes(x = year, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+
+# abundance plot
+cxp_table <- species_table %>%
+  mutate(species = as.character(species)) %>%
+  filter(species == "culex pipiens") %>%
+  group_by(species, year(date)) %>%
+  mutate(year_total = sum(num_caught))
+
+ggplot(cxp_table, aes(x = year(date), y = year_total, group = species))+
+  geom_line()+
+  #facet_wrap(~species, scales = 'free_y')+
+  theme_classic()
+
+
+```
+
+
+## Culex restuans populations vs. WNV activity
+```{r}
+
+#	Longitudinal analysis 
+#	Growth curve 
+
+# abundance bar plot
+culex_restuans <- species_table %>%
+  filter(species == "culex restuans")
+
+culex_restuans_years <- culex_restuans %>%
+  group_by(year(date)) %>%
+  summarize(num_caught = sum(num_caught))
+
+colnames(culex_restuans_years) <- c("year", "num_caught")
+
+culex_restuans_years %>%
+ggplot(aes(x = year, y = num_caught))+
+  geom_bar(stat = "identity")+
+  geom_jitter(width = 0.15)+
+  theme(axis.text.x = element_text(angle = 90))
+
+# abundance plot
+cxr_table <- species_table %>%
+  mutate(species = as.character(species)) %>%
+  filter(species == "culex restuans") %>%
+  group_by(species, year(date)) %>%
+  mutate(year_total = sum(num_caught))
+
+ggplot(cxr_table, aes(x = year(date), y = year_total))+
+  geom_line(color = "blue")+
+  #facet_wrap(~species, scales = 'free_y')+
+  theme_classic()
+
+# plot over CT map 
+cxr_map <- culex_restuans%>%
+  mutate(Site = as.character(Site))
+
+cxr_map <- left_join(cxr_map, trap_locations, by = c("Site" = "Location")) %>%
+  ungroup
+
+
+
+col.plot=rgb(1,0,0,alpha=0.02)
+p1 <- ggplot(cxr_map, aes(x = Longitude, y = Latitude))+
+  geom_point(col = col.plot)+
+  theme_classic()
+#p1 + 
+  geom_sf(CT_2, aes(fill = NA), color = "black", size = 0.25)
+  geom_polygon(data = CT_2, aes(pol), fill=NA, colour='black', alpha=0)
+
+ggplot(CT_2)+
+  geom_polygon(aes(x=long, y=lat, group=group),fill=NA, colour='black', alpha=0) +
+  geom_point(cxr_map, aes(x = Longitude, y = Latitude, size = num_caught), col = col.plot)
+
+
+  p1+  geom_polygon(data=CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0) 
+
+
+```
+
+## Model the two species together (Cx. pipiens + Cx. restuans)
+```{r}
+#	leverage habitat correlation 
+#	How does land use affect?
+
+
+cxp_cxr_table <- species_table %>%
+  mutate(species = as.character(species)) %>%
+  filter(species == "culex pipiens" | species == "culex restuans") %>%
+  group_by(species, year(date)) %>%
+  mutate(year_total = sum(num_caught))
+
+ggplot(cxp_cxr_table, aes(x = year(date), y = year_total, group = species, col = species ))+
+  geom_line()+
+  #facet_wrap(~species, scales = 'free_y')+
+  theme_classic()
+
+cxp_cxr_table %>%
+  mutate(Site = as.character(Site))
+
+cxp_cxr_climate <- left_join(cxp_cxr_table, trap_climate, by = c("Site" = "Name", "date" = "Date"))
+
+
+
+#cxp_cxr_table %>%
+#  ggplot(aes(x = date, y = `tmean (degrees F)`))+
+#  geom_line()+
+#  theme_classic()
+```
+
+## Seasonality 
+```{r}
+
+# Shifting of transmission season?
+#	Lengthening of the transmission season? 
+#	Does it result in a longer virus transmission season? 
+#	Culex overwinter as adults (only females, mated), how is climate change affecting these population dynamics and what does that mean for WNV risk?
+#	Interannual variation: amplitude and duration of transmission period
+#	Timing and length of transmission and how that varies over time, then work backwards to see how that relates to climate data
+#	Timing and duration of virus activity
+
+
+```
+
+## Effect of Extreme Weather
+```{r}
+
+# need to define extreme weather
+
+```
+
+## How do entomological indices and WNV positivity relate to human cases? 
+```{r}
+# Model proportion of each species that is positive and then use it as a human predictor
+
+```
+
+# If you were to put another trap, where would you want to place it?
+```{r}
+# more in total or more of a certain species caught?
+# what are you trying to optimize? 
+```

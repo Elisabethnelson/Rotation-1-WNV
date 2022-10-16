@@ -24,7 +24,7 @@ pacman::p_load(
   here, #relative file pathways
   janitor, #data cleaning and tables
   epikit) #ag_categories function
-
+library(sf)
 
 ```
 
@@ -142,6 +142,10 @@ rural_traps <- #include horse stable
 school_traps <- 
 coastal_traps <- 
 # G37 is on a naval base
+  
+# just trap locations
+trap_locations <- trap_location_land_cover %>%
+  select(Location, Latitude, Longitude)
 
 
 ```
@@ -161,7 +165,7 @@ trap_climate <- read_csv("Data/Confidential/PRISM weather data.csv",
 
 #format traps at categories
 trap_climate <- trap_climate %>%
-            mutate(Name = as.factor(Name))
+            mutate(Name = as.character(Name))
 str(trap_climate)
 ```
 
@@ -174,5 +178,13 @@ str(trap_climate)
 ```
 
 
-
+## Map CT
+```{r}
+CT <- st_read(dsn = '/Users/zoe/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Connecticut_and_Vicinity_Town_Boundary_Set/CT_Vicinity_Town_Polygon.shp')
+str(CT)
+CT <- CT %>%
+  dplyr::filter(STATE_COD == "CT")
+CT1_a <- as(CT,'Spatial')
+CT_2 <- fortify(CT1_a)
+```
 
