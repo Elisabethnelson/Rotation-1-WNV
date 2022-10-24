@@ -22,6 +22,9 @@ pacman::p_load(
   epikit) #ag_categories function
 library(ggplot2)
 library(stats); library(splines); library(gam); library(dlnm)
+library(scales)
+library(patchwork)
+library(survival)
 
 ```
 
@@ -50,6 +53,73 @@ ggplot(aes(x = species, y = num_caught))+
   geom_jitter(width = 0.15)+
   theme(axis.text.x = element_text(angle = 90))
 
+#ggplot(trap_climate)+
+  #geom_line(aes(Date, tmean))
+  #geom_line(aes(Date, tmin), col = "blue")+
+  #geom_line(aes(Date, tmax), col = "red")+
+ # theme_classic()+
+ # labs(x = "Date", y = "Temperature (F)", title = "Temperature at Trap Locations")
+
+
+# plotting one site's temp and number caught
+by_site_mozzies <- core_traps_ff %>%
+  filter(Site == "BB17") %>%
+  group_by(Date) %>%
+  summarize(total_caught_by_day = sum(X..Mosquitoes))
+
+by_site_climate <- trap_climate %>%
+  filter(Name == "BB17") %>%
+  group_by(Date)
+
+by_site_climate_mozzie <- left_join()
+
+# side-by-side graphs
+p1 <- ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = tmean), col = "red")
+
+p2 <- ggplot()+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)))
+
+p1 + p2
+
+#combined plot
+coeff <- 10
+    #mean temp
+ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = tmean), col = "red")+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
+  scale_y_continuous(name = "Mean Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
+  theme_classic()
+    # min temp
+ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = tmin), col = "red")+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
+  scale_y_continuous(name = "Min Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
+  theme_classic()
+    # max temp
+ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = tmax), col = "red")+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
+  scale_y_continuous(name = "Max Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
+  theme_classic()
+    # dew point
+ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = tdmean), col = "purple")+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
+  scale_y_continuous(name = "Mean Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
+  theme_classic()
+    # precipitation
+p3 <- ggplot()+
+  geom_line(data = by_site_climate, aes(x = Date, y = ppt), col = "blue")
+
+p2 + p3
+
+coeff_2 <- 100
+ggplot()+
+  geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)))+ 
+  geom_line(data = by_site_climate, aes(x = Date, y = ppt*coeff_2), col = "blue")+
+  scale_y_continuous(name = "Total Mosquitoes Caught (log scale)", sec.axis = sec_axis(~./coeff_2, name = "Precipitation (in)"))+
+  theme_classic()
 
 ```
 
@@ -63,7 +133,114 @@ ggplot(aes(x = species, y = num_caught))+
 # create a new column of days since June 1st for 1st WNV+, do for overall, cx pipiens, and cx restuans
 
 
+core_traps_ff_WNV <- core_traps_ff %>%
+  filter(Virus == "WNV")
+
+core_traps_ff_WNV <- core_traps_ff_WNV %>%
+  arrange(Site, Species, Date) %>%
+  mutate(year = year(Date)) %>%
+  group_by(Site,Species, year) %>%
+  mutate(june_1 = "June-01") %>%
+  unite("june1", year:june_1, remove = F) %>%
+  mutate(june1 = as.Date(june1, "%Y_%b-%d"),
+         sampleN=row_number(),
+        days_since_june_1 = as.numeric(Date - june1))
+
+core_traps_ff_WNV_first <- core_traps_ff_WNV %>%
+  arrange(Site,Species, year) %>%
+  group_by(Site,Species, year) %>%
+  filter(row_number() == 1)
+
+ggplot(core_traps_ff_WNV_first, aes(Date, days_since_june_1), na.rm = T)+
+  geom_line()+
+  theme_classic()
+
+ggplot(core_traps_ff_WNV_first, aes(Date, days_since_june_1, col = Species), na.rm = T)+
+  geom_line()+
+  theme_classic()
+  #facet_wrap(~Site)
+
+core_traps_ff_WNV_first %>%
+  filter(Species == "culex pipiens" | Species == "culex restuans") %>%
+  ggplot(aes(Date, days_since_june_1, col = Species), na.rm = T)+
+  geom_line()+
+  theme_classic()
+
+core_traps_ff_WNV_first %>%
+  filter(Species == "culex pipiens" | Species == "culex restuans") %>%
+  ggplot(aes(Date, days_since_june_1, col = Species), na.rm = T)+
+  geom_line()+
+  geom_smooth()+
+  facet_wrap(~Species)+
+  theme_classic()
+
+core_traps_ff_WNV_first %>%
+  filter(Species == "culex pipiens" | Species == "culex restuans") %>%
+  ggplot(aes(Date, days_since_june_1, col = Species), na.rm = T)+
+  geom_line()+
+  geom_point(aes(col = Site))+
+  facet_wrap(~Species)+
+  theme_classic()
+
+core_traps_ff_WNV_first %>%
+  filter(Species == "culex pipiens" | Species == "culex restuans") %>%
+  ggplot(aes(Date, days_since_june_1, col = Site), na.rm = T)+
+  geom_line()+
+  facet_wrap(~Species)+
+  theme_classic()
+
+## Map
+core_traps_ff_WNV_first <- core_traps_ff_WNV_first %>%
+  mutate(Site = as.character(Site))
+
+WNV_first_map <- left_join(core_traps_ff_WNV_first, trap_locations, by = c("Site" = "Location")) %>%
+  ungroup
+
+
+ggplot()+
+  geom_polygon(data=CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0)+
+  geom_point(data = WNV_first_map, aes(x = Longitude, y = Latitude, group = factor(days_since_june_1), col = days_since_june_1, size = days_since_june_1))+
+  scale_color_distiller(name = "Days Since June 1st", 
+                       palette = "Blues", 
+                       direction = 1)+
+   theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_rect(fill = "white", color = NA))
+
+# average days per year
+WNV_avg_first <- WNV_first_map %>%
+  group_by(year(Date)) %>%
+  summarize(avg_days_since = mean(days_since_june_1)) %>%
+  rename("year" = "year(Date)")
+  
+ggplot(WNV_avg_first, aes(x = year, y = avg_days_since))+
+  geom_line()+
+  geom_point()+
+  geom_smooth()+
+  theme_classic()+
+  labs(x = "Year", y = "Days Since June 1", title = "Average Days Until First WNV Positive Since June 1")
+
+## Survival Model
+# time, positive, num_caught, log_temp (2, 4, 6, 8 weeks), land-use
+survival_table <- core_traps_ff_WNV_first %>%
+  select(Species, Site, Date, X..Mosquitoes, Virus, days_since_june_1)
+trap_land_cover <- trap_location_land_cover %>%
+  select(Location, Type.of.Collection.Site, updated_land_cover)
+survival_climate <- trap_climate_with_lag %>%
+  select(Name, ppt, tmean, tdmean, lag_2_tmean, lag_4_tmean, lag_6_tmean, lag_8_tmean)
+  
+survival_table<- left_join(survival_table, trap_land_cover, by = c("Site" = "Location"))
+survival_table <- left_join(survival_table, survival_climate, by = c("Site" = "Name"))
+
+
+
 ```
+No clear trend in days since June 1 for first positive for totals or species-specific. What statistical analysis should I do? 
+
+as josh for model
+survivql model --> failure time is the date of first positive
+
 
 ## Culex pipiens populations vs. WNV activity
 ```{r}
@@ -71,33 +248,54 @@ ggplot(aes(x = species, y = num_caught))+
 #	Growth curve 
 
 # abundance bar plot
-culex_pipiens <- species_table %>%
-  filter(species == "culex pipiens")
+culex_pipiens <- core_traps_ff %>%
+  filter(Species == "culex pipiens") %>%
+  group_by(year(Date)) %>%
+  mutate(year_total = sum(X..Mosquitoes))
 
-culex_pipiens_years <- culex_pipiens %>%
-  group_by(year(date)) %>%
-  summarize(num_caught = sum(num_caught))
-
-colnames(culex_pipiens_years) <- c("year", "num_caught")
-
-culex_pipiens_years %>%
-ggplot(aes(x = year, y = num_caught))+
+culex_pipiens %>%
+ggplot(aes(x = year(Date), y = year_total))+
   geom_bar(stat = "identity")+
   geom_jitter(width = 0.15)+
-  theme(axis.text.x = element_text(angle = 90))
-
-# abundance plot
-cxp_table <- species_table %>%
-  mutate(species = as.character(species)) %>%
-  filter(species == "culex pipiens") %>%
-  group_by(species, year(date)) %>%
-  mutate(year_total = sum(num_caught))
-
-ggplot(cxp_table, aes(x = year(date), y = year_total, group = species))+
-  geom_line()+
-  #facet_wrap(~species, scales = 'free_y')+
+  theme(axis.text.x = element_text(angle = 90))+
   theme_classic()
 
+# abundance plot
+core_traps_ff %>%
+  filter(Species == "culex pipiens") %>%
+  group_by(year(Date)) %>%
+  mutate(year_total = sum(X..Mosquitoes)) %>%
+  ggplot(aes(x = year(Date), y = year_total))+
+    geom_line(color = "blue")+
+    #facet_wrap(~species, scales = 'free_y')+
+    theme_classic()
+
+core_traps_ff %>%
+  filter(Species == "culex pipiens") %>%
+  ggplot(aes(x = Date, y = X..Mosquitoes, group = Site))+
+    geom_line(aes(col = Site))+
+    facet_wrap(~ Site)+
+    theme_classic()
+    
+
+# plot over CT map 
+cxp_map <- culex_pipiens%>%
+  mutate(Site = as.character(Site))
+
+cxp_map <- left_join(cxp_map, trap_locations, by = c("Site" = "Location")) %>%
+  ungroup
+ 
+
+ggplot()+
+  geom_polygon(data=CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0)+
+  geom_point(data = cxp_map, aes(x = Longitude, y = Latitude, group = factor(Site), size = X..Mosquitoes), alpha = 0.05, col = "blue")+
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_rect(fill = "white", color = NA))
+
+
+# check to make sure ggplot is doing the scaling correctly --> scale by area of the bubble or by the radius, want it to scale by area
 
 ```
 
@@ -109,32 +307,38 @@ ggplot(cxp_table, aes(x = year(date), y = year_total, group = species))+
 #	Growth curve 
 
 # abundance bar plot
-culex_restuans <- species_table %>%
-  filter(species == "culex restuans")
+culex_restuans <- core_traps_ff %>%
+  filter(Species == "culex restuans") %>%
+  group_by(year(Date)) %>%
+  mutate(year_total = sum(X..Mosquitoes))
 
-culex_restuans_years <- culex_restuans %>%
-  group_by(year(date)) %>%
-  summarize(num_caught = sum(num_caught))
-
-colnames(culex_restuans_years) <- c("year", "num_caught")
-
-culex_restuans_years %>%
-ggplot(aes(x = year, y = num_caught))+
+core_traps_ff %>%
+  filter(Species == "culex restuans") %>%
+  group_by(year(Date)) %>%
+  mutate(year_total = sum(X..Mosquitoes)) %>%
+ggplot(aes(x = year(Date), y = year_total))+
   geom_bar(stat = "identity")+
   geom_jitter(width = 0.15)+
-  theme(axis.text.x = element_text(angle = 90))
+  theme(axis.text.x = element_text(angle = 90))+
+  theme_classic()
 
 # abundance plot
-cxr_table <- species_table %>%
-  mutate(species = as.character(species)) %>%
-  filter(species == "culex restuans") %>%
-  group_by(species, year(date)) %>%
-  mutate(year_total = sum(num_caught))
+core_traps_ff %>%
+  filter(Species == "culex restuans") %>%
+  group_by(year(Date)) %>%
+  mutate(year_total = sum(X..Mosquitoes)) %>%
+  ggplot(aes(x = year(Date), y = year_total))+
+    geom_line(color = "blue")+
+    #facet_wrap(~species, scales = 'free_y')+
+    theme_classic()
 
-ggplot(cxr_table, aes(x = year(date), y = year_total))+
-  geom_line(color = "blue")+
-  #facet_wrap(~species, scales = 'free_y')+
-  theme_classic()
+core_traps_ff %>%
+  filter(Species == "culex restuans") %>%
+  ggplot(aes(x = Date, y = X..Mosquitoes, group = Site))+
+    geom_line(aes(col = Site))+
+    facet_wrap(~ Site)+
+    theme_classic()
+    
 
 # plot over CT map 
 cxr_map <- culex_restuans%>%
@@ -142,23 +346,15 @@ cxr_map <- culex_restuans%>%
 
 cxr_map <- left_join(cxr_map, trap_locations, by = c("Site" = "Location")) %>%
   ungroup
+  
 
-
-
-col.plot=rgb(1,0,0,alpha=0.02)
-p1 <- ggplot(cxr_map, aes(x = Longitude, y = Latitude))+
-  geom_point(col = col.plot)+
-  theme_classic()
-#p1 + 
-  geom_sf(CT_2, aes(fill = NA), color = "black", size = 0.25)
-  geom_polygon(data = CT_2, aes(pol), fill=NA, colour='black', alpha=0)
-
-ggplot(CT_2)+
-  geom_polygon(aes(x=long, y=lat, group=group),fill=NA, colour='black', alpha=0) +
-  geom_point(cxr_map, aes(x = Longitude, y = Latitude, size = num_caught), col = col.plot)
-
-
-  p1+  geom_polygon(data=CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0) 
+ggplot()+
+  geom_polygon(data=CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0)+
+  geom_point(data = cxr_map, aes(x = Longitude, y = Latitude, group = factor(Site), size = X..Mosquitoes ), alpha = 0.05, col = "red")+
+   theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_rect(fill = "white", color = NA))
 
 
 ```
@@ -185,12 +381,27 @@ cxp_cxr_table %>%
 
 cxp_cxr_climate <- left_join(cxp_cxr_table, trap_climate, by = c("Site" = "Name", "date" = "Date"))
 
-
+str(cxp_cxr_map)
 
 #cxp_cxr_table %>%
 #  ggplot(aes(x = date, y = `tmean (degrees F)`))+
 #  geom_line()+
 #  theme_classic()
+
+## MAP
+cxp_cxr_map <- left_join(cxp_cxr_table, trap_locations, by = c("Site" = "Location")) %>%
+  ungroup 
+
+cxp_cxr_map <- cxp_cxr_map %>%
+  mutate(num_caught = as.numeric(num_caught))
+
+ggplot()+
+  geom_polygon(data = CT_2, aes(x=long, y=lat, group=group), fill=NA, colour='black', alpha=0)+
+  geom_point(data = cxp_cxr_map, aes(x = Longitude, y = Latitude, group = factor(Site), col = factor(species), size = num_caught), alpha = 0.05)+
+   theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_rect(fill = "white", color = NA))
 ```
 
 ## Seasonality 
