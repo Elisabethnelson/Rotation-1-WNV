@@ -25,6 +25,7 @@ library(stats); library(splines); library(gam); library(dlnm)
 library(scales)
 library(patchwork)
 library(survival)
+library(plotly)
 
 ```
 
@@ -131,10 +132,13 @@ ggplot()+
 #	Spatial shift between sites/state
 
 # create a new column of days since June 1st for 1st WNV+, do for overall, cx pipiens, and cx restuans
-
-
 core_traps_ff_WNV <- core_traps_ff %>%
-  filter(Virus == "WNV")
+  mutate(WNV_pos = case_when(Virus == "WNV" ~ 1,
+                             Virus == "WNV, HJ" ~ 1, 
+                             Virus == "WNV & HJ" ~ 1,
+                             Virus == "EEE & WNV" ~ 1,
+                             Virus != "WNV" ~ 0)) %>%
+  filter(WNV_pos == 1)
 
 core_traps_ff_WNV <- core_traps_ff_WNV %>%
   arrange(Site, Species, Date) %>%
@@ -221,7 +225,7 @@ ggplot(WNV_avg_first, aes(x = year, y = avg_days_since))+
   theme_classic()+
   labs(x = "Year", y = "Days Since June 1", title = "Average Days Until First WNV Positive Since June 1")
 
-## Survival Model
+############ Survival Model ##############
 # time, positive, num_caught, log_temp (2, 4, 6, 8 weeks), land-use
 survival_table <- core_traps_ff_WNV_first %>%
   select(Species, Site, Date, X..Mosquitoes, Virus, days_since_june_1)
@@ -233,13 +237,73 @@ survival_climate <- trap_climate_with_lag %>%
 survival_table<- left_join(survival_table, trap_land_cover, by = c("Site" = "Location"))
 survival_table <- left_join(survival_table, survival_climate, by = c("Site" = "Name"))
 
+## basic survival model
+  # use core_traps_ff_WNV (days since June 1) and core_traps_ff_WNV_first (days since June 1, only first of the year)
+core_traps_ff_surv <- core_traps_ff 
+  mutate(WNV_pos = case_when(Virus == "WNV" ~ 1,
+                             Virus == "WNV, HJ" ~ 1, 
+                             Virus == "WNV & HJ" ~ 1,
+                             Virus == "EEE & WNV" ~ 1,
+                             Virus != "WNV" ~ 0)) 
+core_traps_ff_surv <- core_traps_ff_surv %>%
+  arrange(Site, Species, Date) %>%
+  mutate(year = year(Date)) %>%
+  group_by(Site,Species, year) %>%
+  mutate(june_1 = "June-01") %>%
+  unite("june1", year:june_1, remove = F) %>%
+  mutate(june1 = as.Date(june1, "%Y_%b-%d"),
+         sampleN=row_number(),
+        days_since_june_1 = as.numeric(Date - june1))
+core_traps_ff_surv_1 <- core_traps_ff_surv %>%
+  arrange(Site,Species, year) %>%
+  group_by(Site,Species, year) %>%
+  filter(row_number() == 1)
 
+survobj <- Surv(time = core_traps_ff_surv_1$days_since_june_1, 
+                    event = core_traps_ff_surv_1$WNV_pos)
+surv_fit <- survfit(survobj ~ 1)
+plot(surv_fit, 
+     xlab = "Days Since June 1", 
+     ylab = "WNV Probability", 
+     main = "First WNV Positive Survival Curve")
+
+## cox model to assess the effect of updated land cover and lag 2 tmean
+
+surv_cox_landcov_lag2temp <- coxph(
+  Surv(days_since_june_1, WNV_pos) ~ updated_land_cover + lag_2_tmean, 
+  data = core_traps_ff_surv_1
+)
+summary(surv_cox_landcov_lag2temp)
+
+## for pipiens
+cxp_surv <- core_traps_ff_surv_1 %>%
+  dplyr::filter(Species == "culex pipiens")
+
+survobj_cxp <- Surv(time = cxp_surv$days_since_june_1, 
+                    event = cxp_surv$WNV_pos)
+surv_fit_cxp <- survfit(survobj_cxp ~ 1)
+plot(surv_fit_cxp, 
+     xlab = "Days Since June 1", 
+     ylab = "WNV Probability", 
+     main = "Culex Pipiens First WNV Positive Survival Curve")
+
+## for restuans
+cxr_surv <- core_traps_ff_surv_1 %>%
+  dplyr::filter(Species == "culex restuans")
+
+survobj_cxr <- Surv(time = cxr_surv$days_since_june_1, 
+                    event = cxr_surv$WNV_pos)
+surv_fit_cxr <- survfit(survobj_cxr ~ 1)
+plot(surv_fit_cxr, 
+     xlab = "Days Since June 1", 
+     ylab = "WNV Probability", 
+     main = "Culex Restuans First WNV Positive Survival Curve")
 
 ```
 No clear trend in days since June 1 for first positive for totals or species-specific. What statistical analysis should I do? 
 
 as josh for model
-survivql model --> failure time is the date of first positive
+survival model --> failure time is the date of first positive
 
 
 ## Culex pipiens populations vs. WNV activity
@@ -278,7 +342,7 @@ core_traps_ff %>%
     theme_classic()
     
 
-# plot over CT map 
+############# plot over CT map  #############
 cxp_map <- culex_pipiens%>%
   mutate(Site = as.character(Site))
 
@@ -295,10 +359,96 @@ ggplot()+
         panel.background = element_rect(fill = "white", color = NA))
 
 
-# check to make sure ggplot is doing the scaling correctly --> scale by area of the bubble or by the radius, want it to scale by area
+# scales by area
 
+
+############ population vs. climate ############
+core_traps_ff_cxp <- core_traps_ff %>%
+  filter(Species == "culex pipiens")
+
+# NOT USING  = try plotting in 5 year increments
+cxp_2001_2006 <- core_traps_ff_cxp %>%
+  filter(Date >= '2001-01-01' & Date <= '2006-12-31') %>%
+  group_by(Site)
+ # looks very funky
+ggplot()+
+  geom_point(data = cxp_2001_2006, aes(x = Date, y = X..Mosquitoes))
+
+### actually worked: 
+
+cxp_2001_2021 <- core_traps_ff_cxp %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes),
+         avg_daily_temp = mean(tmean),
+         avg_min_daily_temp = mean(tmin), 
+         avg_max_daily_temp = mean(tmax), 
+         avg_dewpoint_daily_temp = mean(tdmean))
+
+par(mfrow = c(2, 2))
+
+coeff <- 10
+
+ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+# shown side-by-side
+cxp3 <- ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxp4 <- ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxp5 <- ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxp6 <- ggplot(data = cxp_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxp3 + cxp4 + cxp5 + cxp6
 ```
-
+Needed to average across traps (so across the state) to just plot climate vs. Cx. pipiens abundance...
+Should I do a GAM or GLM????
 
 ## Culex restuans populations vs. WNV activity
 ```{r}
@@ -356,6 +506,81 @@ ggplot()+
         axis.ticks = element_blank(),
         panel.background = element_rect(fill = "white", color = NA))
 
+###### Population vs. Climate #########
+core_traps_ff_cxr <- core_traps_ff %>%
+  filter(Species == "culex restuans")
+
+cxr_2001_2021 <- core_traps_ff_cxr %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes),
+         avg_daily_temp = mean(tmean),
+         avg_min_daily_temp = mean(tmin), 
+         avg_max_daily_temp = mean(tmax), 
+         avg_dewpoint_daily_temp = mean(tdmean))
+
+par(mfrow = c(2, 2))
+
+coeff <- 10
+
+ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+# shown side-by-side
+cxr3 <- ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxr4 <- ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxr5 <- ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxr6 <- ggplot(data = cxr_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Restuans Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cxr3 + cxr4 + cxr5 + cxr6
+
 
 ```
 
@@ -402,6 +627,87 @@ ggplot()+
         axis.text.y = element_blank(),
         axis.ticks = element_blank(),
         panel.background = element_rect(fill = "white", color = NA))
+
+
+###### Population vs. Climate ########
+core_traps_ff_cx <- core_traps_ff %>%
+  filter(Species == "culex restuans" | Species == "culex pipens")
+
+### actually worked: 
+
+cx_2001_2021 <- core_traps_ff_cx %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes),
+         avg_daily_temp = mean(tmean),
+         avg_min_daily_temp = mean(tmin), 
+         avg_max_daily_temp = mean(tmax), 
+         avg_dewpoint_daily_temp = mean(tdmean))
+
+par(mfrow = c(2, 2))
+
+coeff <- 10
+
+ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+# shown side-by-side
+cx3 <- ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_daily_temp), col = "orange")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Mean Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cx4 <- ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_min_daily_temp), col = "yellow")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Min Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Min Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cx5 <- ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_max_daily_temp), col = "red")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Max Daily Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Max Daily Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cx6 <- ggplot(data = cx_2001_2021)+
+  geom_line(aes(x = Date, y = avg_dewpoint_daily_temp), col = "blue")+
+  geom_line(aes(x = Date, y = log10(total_caught_daily)*coeff))+
+    scale_y_continuous(name = "Mean Daily Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log10 scale)"))+
+  labs(title = "Culex Pipiens & Restuans Trap Catches vs. Mean Dewpoint Temperature 2001-2021", subtitle = "Across all 87 traps")+
+  theme_classic()
+
+cx3 + cx4 + cx5 + cx6
+
+
+
 ```
 
 ## Seasonality 

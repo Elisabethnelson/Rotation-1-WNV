@@ -247,10 +247,11 @@ trap_climate_with_lag <- trap_climate %>%
 ```
 
 
-## Combine Climate and Case Data
+## Combine Climate and Case Data and Land-Cover and Case Data
 ```{r}
 
-core_traps_ff <- left_join(core_traps_ff, trap_climate, by = c("Site" = "Name", "Date" = "Date"), na.rm = TRUE)
+core_traps_ff <- left_join(core_traps_ff, trap_climate_with_lag, by = c("Site" = "Name", "Date" = "Date"), na.rm = TRUE)
+core_traps_ff <- left_join(core_traps_ff, trap_location_land_cover, by = c("Site" = "Location"))
 
 ```
 
