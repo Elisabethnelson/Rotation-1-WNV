@@ -26,6 +26,7 @@ library(scales)
 library(patchwork)
 library(survival)
 library(plotly)
+library(survminer)
 
 ```
 
@@ -68,15 +69,13 @@ by_site_mozzies <- core_traps_ff %>%
   group_by(Date) %>%
   summarize(total_caught_by_day = sum(X..Mosquitoes))
 
-by_site_climate <- trap_climate %>%
+by_site_climate_BB17 <- trap_climate %>%
   filter(Name == "BB17") %>%
   group_by(Date)
 
-by_site_climate_mozzie <- left_join()
-
 # side-by-side graphs
 p1 <- ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = tmean), col = "red")
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = tmean), col = "red")
 
 p2 <- ggplot()+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)))
@@ -87,38 +86,38 @@ p1 + p2
 coeff <- 10
     #mean temp
 ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = tmean), col = "red")+
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = tmean), col = "red")+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
   scale_y_continuous(name = "Mean Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
   theme_classic()
     # min temp
 ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = tmin), col = "red")+
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = tmin), col = "red")+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
   scale_y_continuous(name = "Min Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
   theme_classic()
     # max temp
 ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = tmax), col = "red")+
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = tmax), col = "red")+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
   scale_y_continuous(name = "Max Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
   theme_classic()
     # dew point
 ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = tdmean), col = "purple")+
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = tdmean), col = "purple")+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)*coeff))+ 
   scale_y_continuous(name = "Mean Dewpoint Temperature (F)", sec.axis = sec_axis(~./coeff, name = "Total Mosquitoes Caught (log scale)"))+
   theme_classic()
     # precipitation
 p3 <- ggplot()+
-  geom_line(data = by_site_climate, aes(x = Date, y = ppt), col = "blue")
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = ppt), col = "blue")
 
 p2 + p3
 
 coeff_2 <- 100
 ggplot()+
   geom_line(data = by_site_mozzies, aes(x = Date, y = log(total_caught_by_day)))+ 
-  geom_line(data = by_site_climate, aes(x = Date, y = ppt*coeff_2), col = "blue")+
+  geom_line(data = by_site_climate_BB17, aes(x = Date, y = ppt*coeff_2), col = "blue")+
   scale_y_continuous(name = "Total Mosquitoes Caught (log scale)", sec.axis = sec_axis(~./coeff_2, name = "Precipitation (in)"))+
   theme_classic()
 
@@ -137,7 +136,7 @@ core_traps_ff_WNV <- core_traps_ff %>%
                              Virus == "WNV, HJ" ~ 1, 
                              Virus == "WNV & HJ" ~ 1,
                              Virus == "EEE & WNV" ~ 1,
-                             Virus != "WNV" ~ 0)) %>%
+                             Virus != "WNV" ~ 0)) %>% 
   filter(WNV_pos == 1)
 
 core_traps_ff_WNV <- core_traps_ff_WNV %>%
@@ -193,7 +192,7 @@ core_traps_ff_WNV_first %>%
   facet_wrap(~Species)+
   theme_classic()
 
-## Map
+################ Map ################
 core_traps_ff_WNV_first <- core_traps_ff_WNV_first %>%
   mutate(Site = as.character(Site))
 
@@ -224,86 +223,552 @@ ggplot(WNV_avg_first, aes(x = year, y = avg_days_since))+
   geom_smooth()+
   theme_classic()+
   labs(x = "Year", y = "Days Since June 1", title = "Average Days Until First WNV Positive Since June 1")
+```
 
+```{r}
+##########################################
 ############ Survival Model ##############
-# time, positive, num_caught, log_temp (2, 4, 6, 8 weeks), land-use
-survival_table <- core_traps_ff_WNV_first %>%
-  select(Species, Site, Date, X..Mosquitoes, Virus, days_since_june_1)
-trap_land_cover <- trap_location_land_cover %>%
-  select(Location, Type.of.Collection.Site, updated_land_cover)
-survival_climate <- trap_climate_with_lag %>%
-  select(Name, ppt, tmean, tdmean, lag_2_tmean, lag_4_tmean, lag_6_tmean, lag_8_tmean)
-  
-survival_table<- left_join(survival_table, trap_land_cover, by = c("Site" = "Location"))
-survival_table <- left_join(survival_table, survival_climate, by = c("Site" = "Name"))
+##########################################
 
-## basic survival model
-  # use core_traps_ff_WNV (days since June 1) and core_traps_ff_WNV_first (days since June 1, only first of the year)
-core_traps_ff_surv <- core_traps_ff 
+######################## basic survival model ################################
+  
+core_traps_ff_surv <- core_traps_ff %>%
   mutate(WNV_pos = case_when(Virus == "WNV" ~ 1,
                              Virus == "WNV, HJ" ~ 1, 
                              Virus == "WNV & HJ" ~ 1,
                              Virus == "EEE & WNV" ~ 1,
                              Virus != "WNV" ~ 0)) 
-core_traps_ff_surv <- core_traps_ff_surv %>%
+
+# if WNV = 1, then days since june 1st, if WNV = 0, days since june first = days since last trapping
+core_traps_ff_surv_1 <- core_traps_ff_surv %>%
   arrange(Site, Species, Date) %>%
   mutate(year = year(Date)) %>%
   group_by(Site,Species, year) %>%
-  mutate(june_1 = "June-01") %>%
+  mutate(last_trap = max(Date)) %>% 
+  mutate(june_1 = "June-01", .before = last_trap) %>%
   unite("june1", year:june_1, remove = F) %>%
-  mutate(june1 = as.Date(june1, "%Y_%b-%d"),
+  mutate(june1 = as.Date(june1, "%Y_%b-%d"), 
          sampleN=row_number(),
-        days_since_june_1 = as.numeric(Date - june1))
-core_traps_ff_surv_1 <- core_traps_ff_surv %>%
+         days_since_june_1 = if_else(WNV_pos == 1, 
+                as.numeric(Date - june1), 
+                as.numeric(last_trap - june1)))
+
+# Get only one neg obs per year per species per trap
+core_traps_ff_surv_2 <- core_traps_ff_surv_1 %>%
+  arrange(Site, Species, Date) %>%
+  group_by(Site,Species, year) %>%
+  dplyr::slice(which.min(days_since_june_1)) %>%
+  dplyr::filter(if_else(WNV_pos == 1, 
+                        min(days_since_june_1), 
+                        mean(days_since_june_1)))
+  
+core_traps_ff_surv_2 <- core_traps_ff_surv_2 %>%
   arrange(Site,Species, year) %>%
   group_by(Site,Species, year) %>%
-  filter(row_number() == 1)
+  mutate(updated_land_cover = as.factor(updated_land_cover))
 
-survobj <- Surv(time = core_traps_ff_surv_1$days_since_june_1, 
-                    event = core_traps_ff_surv_1$WNV_pos)
+# construct model
+survobj <- Surv(time = core_traps_ff_surv_2$days_since_june_1, 
+                    event = core_traps_ff_surv_2$WNV_pos)
+
 surv_fit <- survfit(survobj ~ 1)
+summary(surv_fit)
+print(surv_fit, print.rmean = F)
+  # rmean refers to the area under the curve (estricted mean survival time) which is mainly used in cancer research
+
 plot(surv_fit, 
      xlab = "Days Since June 1", 
-     ylab = "WNV Probability", 
+     ylab = "Probability of Not Isolating WNV", 
      main = "First WNV Positive Survival Curve")
 
-## cox model to assess the effect of updated land cover and lag 2 tmean
+## try filtering out species that do not carry WNV
+WNV_species <- unique(core_traps_ff_WNV$Species)
 
-surv_cox_landcov_lag2temp <- coxph(
-  Surv(days_since_june_1, WNV_pos) ~ updated_land_cover + lag_2_tmean, 
-  data = core_traps_ff_surv_1
-)
-summary(surv_cox_landcov_lag2temp)
+WNV_species_surv_df <- core_traps_ff_surv_2 %>%
+  filter(Species %in% WNV_species)
 
-## for pipiens
-cxp_surv <- core_traps_ff_surv_1 %>%
+WNV_species_surv_df %>%
+  group_by(Species, year) %>%
+  summarize(sum(WNV_pos))
+
+WNV_species_surv <- Surv(time = WNV_species_surv_df$days_since_june_1, 
+                    event = WNV_species_surv_df$WNV_pos)
+
+WNV_species_surv_fit <- survfit(WNV_species_surv ~ 1)
+summary(WNV_species_surv_fit)
+print(WNV_species_surv_fit, print.rmean = F)
+
+plot(WNV_species_surv_fit, 
+     xlab = "Days Since June 1", 
+     ylab = "Probability of Not Isolating WNV", 
+     main = "First WNV Positive in WNV-Carrying Species Survival Curve")
+
+# add event marks, cumulative hazard, and legend
+plot(WNV_species_surv_fit,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV",       
+  mark.time = TRUE,              # mark events on the curve: a "+" is printed at every event
+  conf.int = FALSE,              # do not plot the confidence interval
+  main = "First WNV Positive in WNV-Carrying Species Survival Curve")
+lines(WNV_species_surv_fit,
+  lty = 3,             # use different line type for clarity
+  fun = "event",       # draw the cumulative events instead of the survival 
+  mark.time = FALSE,
+  conf.int = FALSE)
+legend( "center",                         # position of legend
+  legend = c("Survival", "Cum. Mortality"), # legend text 
+  lty = c(1, 3),                            # line types to use in the legend
+  cex = .85,                                # parametes that defines size of legend text
+  bty = "n"                                 # no box type to be drawn for the legend
+  )
+
+########### for pipiens ###########
+cxp_surv <- core_traps_ff_surv_2 %>%
   dplyr::filter(Species == "culex pipiens")
 
 survobj_cxp <- Surv(time = cxp_surv$days_since_june_1, 
                     event = cxp_surv$WNV_pos)
+
 surv_fit_cxp <- survfit(survobj_cxp ~ 1)
+summary(surv_fit_cxp)
+print(surv_fit_cxp, print.rmean = F)
+str(surv_fit_cxp)
+
 plot(surv_fit_cxp, 
      xlab = "Days Since June 1", 
-     ylab = "WNV Probability", 
+     ylab = "Probability of Not Isolating WNV", 
      main = "Culex Pipiens First WNV Positive Survival Curve")
 
-## for restuans
-cxr_surv <- core_traps_ff_surv_1 %>%
+# add event marks, cumulative hazard, and legend
+plot(surv_fit_cxp,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV",       
+  mark.time = TRUE,              # mark events on the curve: a "+" is printed at every event
+  conf.int = FALSE,              # do not plot the confidence interval
+  main = "Culex Pipiens First WNV Positive Survival Curve")
+lines(surv_fit_cxp,
+  lty = 3,             # use different line type for clarity
+  fun = "event",       # draw the cumulative events instead of the survival 
+  mark.time = FALSE,
+  conf.int = FALSE)
+legend( "topright",                         # position of legend
+  legend = c("Survival", "Cum. Mortality"), # legend text 
+  lty = c(1, 3),                            # line types to use in the legend
+  cex = .85,                                # parametes that defines size of legend text
+  bty = "n"                                 # no box type to be drawn for the legend
+  )
+
+########## for restuans #########
+cxr_surv <- core_traps_ff_surv_2 %>%
   dplyr::filter(Species == "culex restuans")
 
 survobj_cxr <- Surv(time = cxr_surv$days_since_june_1, 
                     event = cxr_surv$WNV_pos)
+
 surv_fit_cxr <- survfit(survobj_cxr ~ 1)
+summary(surv_fit_cxr)
+print(surv_fit_cxr, print.rmean = F)
+
 plot(surv_fit_cxr, 
      xlab = "Days Since June 1", 
-     ylab = "WNV Probability", 
+     ylab = "Probability of Not Isolating WNV", 
      main = "Culex Restuans First WNV Positive Survival Curve")
 
-```
-No clear trend in days since June 1 for first positive for totals or species-specific. What statistical analysis should I do? 
+# add event marks, cumulative hazard, and legend
+plot(surv_fit_cxr,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV",       
+  mark.time = TRUE,              # mark events on the curve: a "+" is printed at every event
+  conf.int = FALSE,              # do not plot the confidence interval
+  main = "Culex Restuans First WNV Positive Survival Curve")
+lines(surv_fit_cxr,
+  lty = 3,             # use different line type for clarity
+  fun = "event",       # draw the cumulative events instead of the survival 
+  mark.time = FALSE,
+  conf.int = FALSE)
+legend( "topright",                         # position of legend
+  legend = c("Survival", "Cum. Mortality"), # legend text 
+  lty = c(1, 3),                            # line types to use in the legend
+  cex = .85,                                # parametes that defines size of legend text
+  bty = "n"                                 # no box type to be drawn for the legend 
+  )
 
-as josh for model
-survival model --> failure time is the date of first positive
+########################### log rank test ############################
+
+######### for species  ###########
+surv_fit_species <- survfit(Surv(days_since_june_1, WNV_pos) ~ Species, data = core_traps_ff_surv_2)
+
+# set colors
+col_species <- viridis::viridis(n = 47, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_species,
+  col = col_species,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(core_traps_ff_surv_2$Species)),
+  col = col_species,
+  lty = 1,
+  cex = .3,
+  bty = "n", 
+  ncol = 5)
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ Species, data = core_traps_ff_surv_2)
+
+######### for culex pipiens and culex restuans ############
+cx_surv <- core_traps_ff_surv_2 %>%
+  filter(Species == "culex pipiens" | Species == "culex restuans") %>%
+  droplevels()
+  
+surv_fit_cx <- survfit(Surv(days_since_june_1, WNV_pos) ~ Species, data = cx_surv)
+
+# set colors
+col_species_2 <- viridis::viridis(n = 4, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_cx,
+  col = col_species_2,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(cx_surv$Species)),
+  col = col_species_2,
+  lty = 1,
+  cex = .9,
+  bty = "n")
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ Species, data = cx_surv)
+
+# other plotting method
+survminer::ggsurvplot(
+    surv_fit_cx, 
+    data = cx_surv,          # again specify the data used to fit  
+    conf.int = T,              # do not show confidence interval of KM estimates
+    surv.scale = "percent",        # present probabilities in the y axis in %
+    break.time.by = 20,            # present the time axis with an increment of 10 days
+    xlab = "Days Since June 1", 
+    ylab = "Probability of Not Isolating WNV",
+    pval = T,                      # print p-value of Log-rank test 
+    #pval.coord = c(40,.91),        # print p-value at these plot coordinates
+    risk.table = T,                # print the risk table at bottom 
+    legend.title = "Species",       # legend characteristics
+    legend.labs = c(unique(cx_surv$Species)),
+    font.legend = 10, 
+    palette = "Dark2",             # specify color palette 
+    surv.median.line = "hv",       # draw horizontal and vertical lines to the median survivals
+    ggtheme = theme_light()        # simplify plot background
+)
+
+
+######### for different land cover  ##########
+surv_fit_land <- survfit(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = core_traps_ff_surv_2)
+
+# set colors
+col_land <- viridis::viridis(n = 5, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_land,
+  col = col_land,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+  col = col_land,
+  lty = 1,
+  cex = .9,
+  bty = "n")
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = core_traps_ff_surv_2)
+
+# other plotting method
+survminer::ggsurvplot(
+    surv_fit_land, 
+    data = core_traps_ff_surv_2,          # again specify the data used to fit  
+    conf.int = T,              # do not show confidence interval of KM estimates
+    surv.scale = "percent",        # present probabilities in the y axis in %
+    break.time.by = 20,            # present the time axis with an increment of 10 days
+    xlab = "Days Since June 1", 
+    ylab = "Probability of Not Isolating WNV",
+    pval = T,                      # print p-value of Log-rank test 
+    #pval.coord = c(40,.91),        # print p-value at these plot coordinates
+    risk.table = T,                # print the risk table at bottom 
+    legend.title = "Land Cover",       # legend characteristics
+    legend.labs = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+    font.legend = 10, 
+    palette = "Dark2",             # specify color palette 
+    surv.median.line = "hv",       # draw horizontal and vertical lines to the median survivals
+    ggtheme = theme_light()        # simplify plot background
+)
+
+######### for different land cover between cx. pipiens and cx. restuans #######
+surv_fit_land_cx <- survfit(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cx_surv)
+
+# set colors
+col_land <- viridis::viridis(n = 5, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_land_cx,
+  col = col_land,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+  col = col_land,
+  lty = 1,
+  cex = .9,
+  bty = "n")
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cx_surv)
+
+# other plotting method
+survminer::ggsurvplot(
+    surv_fit_land_cx, 
+    data = cx_surv,          # again specify the data used to fit  
+    conf.int = T,              # do not show confidence interval of KM estimates
+    surv.scale = "percent",        # present probabilities in the y axis in %
+    break.time.by = 20,            # present the time axis with an increment of 10 days
+    xlab = "Days Since June 1", 
+    ylab = "Probability of Not Isolating WNV",
+    pval = T,                      # print p-value of Log-rank test 
+    #pval.coord = c(40,.91),        # print p-value at these plot coordinates
+    risk.table = T,                # print the risk table at bottom 
+    legend.title = "Land Cover",       # legend characteristics
+    legend.labs = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+    font.legend = 10, 
+    palette = "Dark2",             # specify color palette 
+    surv.median.line = "hv",       # draw horizontal and vertical lines to the median survivals
+    ggtheme = theme_light()        # simplify plot background
+)
+
+####### for just cx. pipiens ########
+surv_fit_land_cxp <- survfit(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cxp_surv)
+
+# set colors
+col_land <- viridis::viridis(n = 5, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_land_cxp,
+  col = col_land,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+  col = col_land,
+  lty = 1,
+  cex = .9,
+  bty = "n")
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cxp_surv)
+
+# other plotting method
+survminer::ggsurvplot(
+    surv_fit_land_cxp, 
+    data = cxp_surv,          # again specify the data used to fit  
+    conf.int = T,              # do not show confidence interval of KM estimates
+    surv.scale = "percent",        # present probabilities in the y axis in %
+    break.time.by = 20,            # present the time axis with an increment of 10 days
+    xlab = "Days Since June 1", 
+    ylab = "Probability of Not Isolating WNV",
+    pval = T,                      # print p-value of Log-rank test 
+    #pval.coord = c(40,.91),        # print p-value at these plot coordinates
+    risk.table = T,                # print the risk table at bottom 
+    legend.title = "Land Cover",       # legend characteristics
+    legend.labs = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+    font.legend = 10, 
+    palette = "Dark2",             # specify color palette 
+    surv.median.line = "hv",       # draw horizontal and vertical lines to the median survivals
+    ggtheme = theme_light()        # simplify plot background
+)
+
+########## for just cx. restuans ##############
+surv_fit_land_cxr <- survfit(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cxr_surv)
+
+# set colors
+col_land <- viridis::viridis(n = 5, alpha = 1, begin = 0, end = 1, option = "viridis")
+
+# create plot
+plot(
+  surv_fit_land_cxr,
+  col = col_land,
+  xlab = "Days Since June 1", 
+  ylab = "Probability of Not Isolating WNV")
+
+# add legend
+legend(
+  "bottomleft",
+  legend = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+  col = col_land,
+  lty = 1,
+  cex = .9,
+  bty = "n")
+
+# calculate the difference between the survival curves
+survdiff(Surv(days_since_june_1, WNV_pos) ~ updated_land_cover, data = cxr_surv)
+
+# other plotting method
+survminer::ggsurvplot(
+    surv_fit_land_cxr, 
+    data = cxr_surv,          # again specify the data used to fit  
+    conf.int = T,              # do not show confidence interval of KM estimates
+    surv.scale = "percent",        # present probabilities in the y axis in %
+    break.time.by = 20,            # present the time axis with an increment of 10 days
+    xlab = "Days Since June 1", 
+    ylab = "Probability of Not Isolating WNV",
+    pval = T,                      # print p-value of Log-rank test 
+    #pval.coord = c(40,.91),        # print p-value at these plot coordinates
+    risk.table = T,                # print the risk table at bottom 
+    legend.title = "Land Cover",       # legend characteristics
+    legend.labs = c(unique(core_traps_ff_surv_2$updated_land_cover)),
+    font.legend = 10, 
+    palette = "Dark2",             # specify color palette 
+    surv.median.line = "hv",       # draw horizontal and vertical lines to the median survivals
+    ggtheme = theme_light()        # simplify plot background
+)
+
+############ cox model to assess the effect of updated land cover and lag tmeans
+################################################################################
+
+# If the hazard ratio for a predictor is close to 1 then that predictor does not affect survival,
+# if the HR is less than 1, then the predictor is protective (i.e., associated with improved survival),
+# and if the HR is greater than 1, then the predictor is associated with increased risk (or decreased survival).
+
+
+#fitting the cox model for species and land-cover
+cox_fit_land_cx <-  survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover, 
+              data = cx_surv
+              )
+#printing the model fitted
+cox_fit_land_cx
+    # using cx. pipens and suburban as the bases
+summary(cox_fit_land_cx)
+
+# verify whether the proportional hazards assumptions is respected 
+test_ph_land_cx <- survival::cox.zph(cox_fit_land_cx)
+test_ph_land_cx # species does not have a significant p-value
+survminer::ggcoxzph(test_ph_land_cx) # graphical test for assumptions --> species does not respect
+
+##### try adding climate variables
+surv_cox_land_cx_temp_1 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_1)
+
+surv_cox_land_cx_temp_2 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_2)
+
+surv_cox_land_cx_temp_3 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_3)
+
+surv_cox_land_cx_temp_4 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_4)
+
+surv_cox_land_cx_temp_5 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_5)
+
+surv_cox_land_cx_temp_6 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_6)
+(test_ph_land_cx_temp <- survival::cox.zph(surv_cox_land_cx_temp))
+survminer::ggcoxzph(test_ph_land_cx_temp) 
+
+surv_cox_land_cx_temp_7 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_7)
+
+surv_cox_land_cx_temp_8 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tdmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_8)
+
+surv_cox_land_cx_temp_9 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + tdmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+              data = cx_surv
+              )
+summary(surv_cox_land_cx_temp_9)
+
+# tried pulling out different variables with this one
+#surv_cox_land_cx_temp_10 <- survival::coxph(
+#              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+#              data = cx_surv
+#             )
+#summary(surv_cox_land_cx_temp_10)
+
+# all species
+surv_cox_land_cx_temp_10 <- survival::coxph(
+              Surv(days_since_june_1, WNV_pos) ~ Species + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt, 
+              data = core_traps_ff_surv_2
+              )
+summary(surv_cox_land_cx_temp_10)
+
+
+# look at exp(coefs)
+
+# testing models - lowest value is best
+(aic_values <- c(AIC(cox_fit_land_cx), AIC(surv_cox_land_cx_temp_1), AIC(surv_cox_land_cx_temp_2), AIC(surv_cox_land_cx_temp_3), AIC(surv_cox_land_cx_temp_4), AIC(surv_cox_land_cx_temp_5), AIC(surv_cox_land_cx_temp_6), AIC(surv_cox_land_cx_temp_7), AIC(surv_cox_land_cx_temp_8), AIC(surv_cox_land_cx_temp_9), AIC(surv_cox_land_cx_temp_10)))
+
+(bic_values <- c(BIC(cox_fit_land_cx), BIC(surv_cox_land_cx_temp_1), BIC(surv_cox_land_cx_temp_2), BIC(surv_cox_land_cx_temp_3), BIC(surv_cox_land_cx_temp_4), BIC(surv_cox_land_cx_temp_5), BIC(surv_cox_land_cx_temp_6), BIC(surv_cox_land_cx_temp_7), BIC(surv_cox_land_cx_temp_8), BIC(surv_cox_land_cx_temp_9), BIC(surv_cox_land_cx_temp_10)))
+
+anova(cox_fit_land_cx, surv_cox_land_cx_temp_1, surv_cox_land_cx_temp_2, surv_cox_land_cx_temp_3, surv_cox_land_cx_temp_4, surv_cox_land_cx_temp_5, surv_cox_land_cx_temp_6, surv_cox_land_cx_temp_7, surv_cox_land_cx_temp_8, surv_cox_land_cx_temp_9)
+
+which.min(aic_values)
+which.min(bic_values)
+
+models <- c("cox_fit_land_cx", "surv_cox_land_cx_temp_1", "surv_cox_land_cx_temp_2", "surv_cox_land_cx_temp_3", "surv_cox_land_cx_temp_4", "surv_cox_land_cx_temp_5", "surv_cox_land_cx_temp_6", "surv_cox_land_cx_temp_7", "surv_cox_land_cx_temp_8", "surv_cox_land_cx_temp_9", "surv_cox_land_cx_temp_10")
+
+cox_model_selection <- data.frame(models, aic_values, bic_values)
+    # best fit in both was model 7 - i.e. with  Species(cx. pipiens and cx. restuans) + updated_land_cover + tmean + lag_2_tmean + lag_4_tmean + lag_6_tmean + lag_8_tmean + ppt 
+
+ggforest(surv_cox_land_cx_temp_6, data = cx_surv)
+
+```
+Urban and Culex Pipiens show significantly greater probability of WNV positivity. Pipiens and Restuans both show Urban > Suburban > Rural, but Pipiens showed an 80% probability in urban areas. 
+
+Hazard ratios in the best fit model: culex restuans = 0.9076 (based on cx. pipiens), rural = 0.4170 (based on suburban), urban = 1.5747 (based on suburban), tmean = 1.0716, lag_2_tmean = 1.0883, lag_4_tmean = 1.0640, lag_6_tmean = 1.0503, lag_8_tmean = 1.0278, ppt = 1.3695
 
 
 ## Culex pipiens populations vs. WNV activity
@@ -446,9 +911,21 @@ cxp6 <- ggplot(data = cxp_2001_2021)+
   theme_classic()
 
 cxp3 + cxp4 + cxp5 + cxp6
+
+### try out gam
+cxp_gam <- gam(total_caught_daily ~ avg_daily_temp + s(Date, 7*22) + updated_land_cover + lag_4_tmean + lag_8_tmean,
+               family = quasipoisson, data = cxp_2001_2021)
+# + lag_2_tmean was not as significant
+summary(cxp_gam)
+
+coeff <- gam.exact(cxp_gam)$coefficients
+
+plot(total_caught_daily ~ avg_daily_temp, data = cxp_2001_2021)
+#lines(cxp_2001_2021$avg_daily_temp, predict(cxp_gam, data.frame(avg_daily_temp=cxp_2001_2021$avg_daily_temp)), col = "red")
 ```
 Needed to average across traps (so across the state) to just plot climate vs. Cx. pipiens abundance...
 Should I do a GAM or GLM????
+control for seasonality --> use harmonics (ask GiGi or Kelsey)
 
 ## Culex restuans populations vs. WNV activity
 ```{r}
