@@ -1,0 +1,1060 @@
+---
+title: "Harmonics"
+author: "Elisabeth Nelson"
+date: "2023-01-28"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+pacman::p_load(
+  lubridate,  # general package for handling and converting dates  
+  linelist,   # has function to "guess" messy dates
+  aweek,      # another option for converting dates to weeks, and weeks to dates
+  zoo,        # additional date/time functions
+  tidyverse,  # data management and visualization  
+  rio, #importing data
+  here, #relative file pathways
+  janitor, #data cleaning and tables
+  epikit) #ag_categories function
+library(ggplot2)
+library(stats); library(splines); library(gam); library(dlnm)
+library(scales)
+library(patchwork)
+library(survival)
+library(plotly)
+library(survminer)
+library(MASS)
+
+```
+
+## Seasonality 
+```{r}
+
+# Shifting of transmission season?
+#	Lengthening of the transmission season? 
+#	Does it result in a longer virus transmission season? 
+#	Culex overwinter as adults (only females, mated), how is climate change affecting these population dynamics and what does that mean for WNV risk?
+#	Interannual variation: amplitude and duration of transmission period
+#	Timing and length of transmission and how that varies over time, then work backwards to see how that relates to climate data
+#	Timing and duration of virus activity
+```
+
+### Just Cx. pipiens
+```{r}
+
+####### data set up #############
+# aggregate trap data into weeks
+cxp_2001_2021 <- core_traps_ff_light %>%
+  filter(Species == "culex pipiens") %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes))
+
+cxp_harmonics <- cxp_2001_2021 %>%
+  dplyr::select(Date, total_caught_daily) %>%
+  group_by(Date) %>%
+  dplyr::mutate(caught_daily = sum(total_caught_daily)) %>%
+  distinct(Date, .keep_all = T)
+  
+cxp_harmonics_1 <- cxp_harmonics %>%
+  dplyr::select(Date, caught_daily) %>%
+  group_by(Date) %>%
+  mutate(week_date = floor_date(Date, "week")) %>%
+  group_by(week_date) %>%
+  summarize(caught_daily = sum(caught_daily)) %>%
+  tidyr::complete(week_date = seq.Date(from=min(week_date), to=max(week_date), by='week'), fill=list(caught_daily=0)) %>%
+   mutate(week = as.factor(lubridate::week(week_date)), 
+         year = as.factor(lubridate::year(week_date)))
+
+# aggregate climate data into weeks
+weekly_trap_climate_lag <- trap_climate_with_lag %>%
+  group_by(Date) %>%
+  mutate(week = week(Date), 
+         year = year(Date)) %>%
+  group_by(year, week) %>%
+  summarize(weekly_ppt = sum(ppt), 
+         weekly_avg_tmin = mean(tmin), 
+         weekly_avg_tmean = mean(tmean), 
+         weekly_avg_tmax = mean(tmax), 
+         weekly_avg_tdmean = mean(tdmean), 
+         weekly_avg_lag2_tmean = mean(lag_2_tmean), 
+         weekly_avg_lag4_tmean = mean(lag_4_tmean), 
+         weekly_avg_lag6_tmean = mean(lag_6_tmean), 
+         weekly_avg_lag8_tmean = mean(lag_8_tmean), 
+         weekly_lag2_ppt = sum(lag_2_ppt), 
+         weekly_lag4_ppt = sum(lag_4_ppt), 
+         weekly_lag6_ppt = sum(lag_6_ppt), 
+         weekly_lag8_ppt = sum(lag_8_ppt)) %>%
+  mutate(week = as.factor(week), 
+         year = as.factor(year))
+
+# join climate and trap data
+cxp_harmonics_climate <- left_join(cxp_harmonics_1, weekly_trap_climate_lag, by = c("year" = "year", "week" = "week"))
+cxp_harmonics_climate <- cxp_harmonics_climate %>%
+  mutate(log_caught = log(caught_daily)) 
+cxp_harmonics_climate$log_caught[is.infinite(cxp_harmonics_climate$log_caught)] <- 0
+
+
+# plot number against time 
+ggplot(data = cxp_harmonics_climate)+
+  geom_line(aes(week_date, caught_daily))+
+  xlab("Time")+
+  ylab("Culex pipiens caught")+
+  theme_classic()
+
+ggplot(data = cxp_harmonics_climate)+
+  geom_line(aes(week_date, log_caught))+
+  ylim(-5, 15)+
+  xlab("Time")+
+  ylab("Culex pipiens caught")+
+  theme_classic()
+
+# Fast fourier transform
+tmax <- length(cxp_harmonics_climate$caught_daily) # number of weeks
+dt <- 1/52 # time step in years
+ym <- abs(fft(cxp_harmonics_climate$log_caught)) # absolute value of the power from FFT
+f <- (0:(tmax - 1))/tmax # frequency of oscillations (in weeks)
+period <- dt/f # period of oscillations (in years) = 1/frequency
+
+plot(x=period[2:round(tmax/2)+1], y=ym[2:round(tmax/2)+1], 
+     type='h', xlim=c(0,12),bty="l",
+     xlab='Period (years)', ylab='Strength', 
+     main="Absolute value of the power from FFT")
+
+order(ym[2:round(tmax/2)+1], decreasing = T)[1:3] # dominate periods of oscillations --> 19, 20, 40
+period[2:round(tmax/2)+1][19] # 1.022115 years
+period[2:round(tmax/2)+1][20] # 0.9734432
+period[2:round(tmax/2)+1][40] # 0.4985929
+
+######### Dan's method #########
+## generate harmonic curves
+cxp_harmonics_climate <- cxp_harmonics_climate %>%
+  arrange(week_date) %>%
+  mutate(t = row_number())
+
+# dominant periods = 53 weeks (1.022115 years), 51 weeks (0.9734432 years), and
+# 26 weeks (0.4985929 years) --> 52/#
+
+cxp_harmonics_climate_2 <- cxp_harmonics_climate %>%
+  mutate(sin53 = sin(2*pi*t*0.9783635/52.143), 
+         cos53 = cos(2*pi*t*0.97836355/52.143), 
+         sin51 = sin(2*pi*t*1.027281/52.143), 
+         cos51 = cos(2*pi*t*1.027281/52.143), 
+         sin26 = sin(2*pi*t*2/52.143), 
+         cos26 = cos(2*pi*t*2/52.143), 
+         sin52 = sin(2*pi*t/52.143),
+         cos52 = cos(2*pi*t/52.143))
+
+#### fit neg binomial regression models 
+library(MASS)
+
+# just 53 week oscillation
+fit1 <- glm.nb(log_caught ~ sin53 + cos53, data = cxp_harmonics_climate_2)
+cxp_harmonics_climate_2$pred1<- fitted(fit1)
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred1), color = "red")+
+  theme_classic()
+
+# 52 + 26 week oscillations --> fits best
+fit2 <- glm.nb(log_caught ~ sin52 + cos52 + sin26 + cos26, data = cxp_harmonics_climate_2)
+cxp_harmonics_climate_2$pred2<- fitted(fit2)
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred2), color = "red")+
+  ylab("Culex pipiens caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred2)), color = "red")+
+  ylab("Culex pipiens caught")+
+  xlab("Time")+
+  theme_classic()
+
+
+# 53 + 51 week oscillations --> doesn't fit well
+fit3 <- glm.nb(log_caught ~ sin53 + cos53 + sin51 + cos51, data = cxp_harmonics_climate_2)
+cxp_harmonics_climate_2$pred3<- fitted(fit3)
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred3), color = "red")+
+  theme_classic()
+
+# 53, 51, and 26  week oscillations --> doesn't fit well
+fit4 <- glm.nb(log_caught ~ sin53 + cos53 + sin51 + cos51 + sin26 + cos26, data = cxp_harmonics_climate_2)
+cxp_harmonics_climate_2$pred4<- fitted(fit4)
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred4), color = "red")+
+  theme_classic()
+
+# try just a 52 week oscillation 
+fit5 <- glm.nb(log_caught ~ sin52 + cos52, data = cxp_harmonics_climate_2)
+cxp_harmonics_climate_2$pred5<- fitted(fit5)
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred5), color = "red")+
+  ylab("Culex pipiens caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxp_harmonics_climate_2, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred5)), color = "red")+
+  ylab("Culex pipiens and restuans caught")+
+  xlab("Time")+
+  theme_classic()
+
+# determine better model 
+#AIC(fit1)
+AIC(fit5)
+AIC(fit2)
+#BIC(fit1)
+BIC(fit5)
+BIC(fit2)
+
+### calculate amplitude of 52 week period
+# pull coefs out of results of model
+beta_sin52<-coef(fit5)['sin52']
+beta_cos52<-coef(fit5)['cos52']
+
+amp52<-sqrt(beta_sin52^2 +beta_cos52^2)
+amp52 # 2.940764
+
+#### run wavelet analysis 
+source(file="/Users/zoe/Documents/Yale EMD/Year 1/Quantitative Methods in Infectious Disease Epidemiology/Lab/WaveletPkg.R")
+# mozzies caught
+wave1 <- cxp_harmonics_climate_2 %>% 
+    mutate(x = sqrt(caught_daily)) %>% # makes everything behave better and closer to guassian signal
+   dplyr::select(x, t)
+
+cwt1 <- complete.cwt(wave1, dj=1/26, dt=1/52)
+
+plot.cwt(cwt1) # plots the wavelet with the power spectrum
+
+
+# precipitation
+wave2 <- cxp_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_ppt)) %>%
+   dplyr::select(x, t)
+cwt2 <- complete.cwt(wave2, dj=1/26, dt=1/52)
+plot.cwt(cwt2)
+# tmin
+wave3 <- cxp_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmin)) %>% 
+   dplyr::select(x, t)
+cwt3 <- complete.cwt(wave3, dj=1/26, dt=1/52)
+plot.cwt(cwt3)
+# tmean
+wave4 <- cxp_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmean)) %>% 
+   dplyr::select(x, t)
+cwt4 <- complete.cwt(wave4, dj=1/26, dt=1/52)
+plot.cwt(cwt4)
+# tmax
+wave5 <- cxp_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmax)) %>% 
+   dplyr::select(x, t)
+cwt5 <- complete.cwt(wave5, dj=1/26, dt=1/52)
+plot.cwt(cwt5)
+# tdmean --> doesn't work
+#wave6 <- cxp_harmonics_climate_2 %>% 
+#    mutate(x=sqrt(weekly_avg_tdmean)) %>% 
+#   dplyr::select(x, t)
+#cwt6 <- complete.cwt(wave6, dj=1/26, dt=1/52)
+#plot.cwt(cwt6)
+
+#### Calculate Phase angles 
+phase1 <- phase(cwt1, s=c(0.8, 1.2)) # pulls out the phase for whatever period you're looking at
+phase2 <- phase(cwt2, s=c(0.8, 1.2))
+phase3 <- phase(cwt3, s=c(0.8, 1.2))
+phase4 <- phase(cwt4, s=c(0.8, 1.2))
+phase5 <- phase(cwt5, s=c(0.8, 1.2))
+#phase6 <- phase(cwt6, s=c(0.8, 1.2))
+phase7 <- phase(cwt7, s=c(0.8, 1.2))
+phase8 <- phase(cwt8, s=c(0.8, 1.2))
+phase9 <- phase(cwt9, s=c(0.8, 1.2))
+phase10 <- phase(cwt10, s=c(0.8, 1.2))
+phase11 <- phase(cwt11, s=c(0.8, 1.2))
+phase12 <- phase(cwt12, s=c(0.8, 1.2))
+phase13 <- phase(cwt13, s=c(0.8, 1.2))
+phase14 <- phase(cwt14, s=c(0.8, 1.2))
+	
+dates <- unique(cxp_harmonics_climate_2$week_date)
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase2,type='l', col="blue", lty=1) # ppt
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase3,type='l', col="pink", lty=1) # tmin
+points(dates, phase4,type='l', col="orange", lty=1) # tmean
+points(dates, phase5,type='l', col="red", lty=1) # tmax
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase7,type='l', col="pink", lty=1) # lag 2 tmean
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase8,type='l', col="orange", lty=1) # lag 4 tmean
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase9,type='l', col="orange red", lty=1) # lag 6 tmean
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase10,type='l', col="magenta", lty=1) # lag 8 tmean
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(dates, phase11,type='l', col="light blue", lty=1) # lag 2 ppt
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
+points(dates, phase12,type='l', col="navy blue", lty=1) # lag 4 ppt
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
+points(dates, phase13,type='l', col="sea green", lty=1) # lag 6 ppt
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
+points(dates, phase14,type='l', col="purple", lty=1) # lag 8 ppt
+
+```
+
+
+## Cx. pipiens Coherence analysis --> At which periodicity do we have correlation?
+
+periods and which time points are the series in sync? should actually use more monte carlo draws, but takes too long for in class demo (note if set dt=1/52, gives same result but takes much longer)
+
+```{r coherence}
+#ppt
+coh1.2 <- complete.coh(wave1,wave2, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.2)
+
+# tmin
+coh1.3 <- complete.coh(wave1,wave3, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.3)
+
+# tmean
+coh1.4 <- complete.coh(wave1,wave4, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.4)
+
+# tmax
+coh1.5 <- complete.coh(wave1,wave5, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.2)
+
+
+```
+
+### Just cx. restuans 
+```{r}
+####### data set up #############
+# aggregate trap data into weeks
+core_traps_ff_cxr <- core_traps_ff_light %>%
+  filter(Species == "culex restuans")
+
+cxr_2001_2021 <- core_traps_ff_cxr %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes))
+
+cxr_harmonics <- cxr_2001_2021 %>%
+  dplyr::select(Date, total_caught_daily) %>%
+  group_by(Date) %>%
+  dplyr::mutate(caught_daily = sum(total_caught_daily)) %>%
+  distinct(Date, .keep_all = T)
+  
+cxr_harmonics_1 <- cxr_harmonics %>%
+  dplyr::select(Date, caught_daily) %>%
+  group_by(Date) %>%
+  mutate(week_date = floor_date(Date, "week")) %>%
+  group_by(week_date) %>%
+  summarize(caught_weekly = sum(caught_daily)) %>%
+  tidyr::complete(week_date = seq.Date(from=min(week_date), to=max(week_date), by='week'), fill=list(caught_weekly=0)) %>%
+   mutate(week = as.factor(lubridate::week(week_date)), 
+         year = as.factor(lubridate::year(week_date)))
+
+# join climate and trap data
+cxr_harmonics_climate <- left_join(cxr_harmonics_1, weekly_trap_climate_lag, by = c("year" = "year", "week" = "week"))
+cxr_harmonics_climate <- cxr_harmonics_climate %>%
+  mutate(log_caught = log(caught_weekly)) 
+cxr_harmonics_climate$log_caught[is.infinite(cxr_harmonics_climate$log_caught)] <- 0
+
+
+# plot number against time 
+ggplot(data = cxr_harmonics_climate)+
+  geom_line(aes(week_date, caught_weekly))+
+  xlab("Time")+
+  ylab("Culex restuans caught")+
+  theme_classic()
+
+ggplot(data = cxr_harmonics_climate)+
+  geom_line(aes(week_date, log_caught))+
+  ylim(-5, 15)+
+  xlab("Time")+
+  ylab("Culex caught")+
+  theme_classic()
+
+# Fast fourier transform
+tmaxb <- length(cxr_harmonics_climate$caught_weekly) # number of weeks
+dtb <- 1/52 # time step in years
+ymb <- abs(fft(cxr_harmonics_climate$log_caught)) # absolute value of the power from FFT
+fb <- (0:(tmaxb - 1))/tmaxb # frequency of oscillations (in weeks)
+periodb <- dtb/fb # period of oscillations (in years) = 1/frequency
+
+plot(x=periodb[2:round(tmaxb/2)+1], y=ymb[2:round(tmaxb/2)+1], 
+     type='h', xlim=c(0,12),bty="l",
+     xlab='Period (years)', ylab='Strength', 
+     main="Absolute value of the power from FFT")
+
+order(ym[2:round(tmax/2)+1], decreasing = T)[1:3] # dominate periods of oscillations --> 19, 20, 40
+period[2:round(tmax/2)+1][19] # 1.022115 years
+period[2:round(tmax/2)+1][20] # 0.9734432
+period[2:round(tmax/2)+1][40] # 0.4985929
+
+######### Dan's method #########
+## generate harmonic curves
+cxr_harmonics_climate <- cxr_harmonics_climate %>%
+  arrange(week_date) %>%
+  mutate(t = row_number())
+
+# dominant periods = 53 weeks (1.022115 years), 51 weeks (0.9734432 years), and
+# 26 weeks (0.4985929 years) --> 52/#
+
+cxr_harmonics_climate_2 <- cxr_harmonics_climate %>%
+  mutate(sin53 = sin(2*pi*t*0.9783635/52.143), 
+         cos53 = cos(2*pi*t*0.97836355/52.143), 
+         sin51 = sin(2*pi*t*1.027281/52.143), 
+         cos51 = cos(2*pi*t*1.027281/52.143), 
+         sin26 = sin(2*pi*t*2/52.143), 
+         cos26 = cos(2*pi*t*2/52.143), 
+         sin52 = sin(2*pi*t/52.143),
+         cos52 = cos(2*pi*t/52.143), 
+         sin104 = sin(2*pi*t*0.5/52.143), 
+         cos104 = cos(2*pi*t*0.5/52.143))
+
+#### fit neg binomial regression models 
+library(MASS)
+
+# just 53 week oscillation
+fit1b <- glm.nb(log_caught ~ sin53 + cos53, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred1<- fitted(fit1b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred1), color = "red")+
+  theme_classic()
+
+# 52 + 26 week oscillations 
+fit2b <- glm.nb(log_caught ~ sin52 + cos52 + sin26 + cos26, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred2<- fitted(fit2b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred2), color = "red")+
+  ylab("Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred2)), color = "red")+
+  ylab("Culex restuans caught")+
+  xlab("Time")+
+  theme_classic()
+
+# 53 + 51 week oscillations --> doesn't fit well
+fit3b <- glm.nb(log_caught ~ sin53 + cos53 + sin51 + cos51, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred3<- fitted(fit3b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred3), color = "red")+
+  theme_classic()
+
+# 53, 51, and 26  week oscillations --> doesn't fit well
+fit4b <- glm.nb(log_caught ~ sin53 + cos53 + sin51 + cos51 + sin26 + cos26, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred4<- fitted(fit4b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "gray")+
+  geom_line(aes(week_date, pred4), color = "red")+
+  theme_classic()
+
+# try just a 52 week oscillation 
+fit5b <- glm.nb(log_caught ~ sin52 + cos52, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred5<- fitted(fit5b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred5), color = "red")+
+  ylab("Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred5)), color = "red")+
+  ylab("Culex restuans caught")+
+  xlab("Time")+
+  theme_classic()
+
+# 52 + 26 + 104 week oscillations 
+fit6b <- glm.nb(log_caught ~ sin52 + cos52 + sin26 + cos26 + sin104 + cos104, data = cxr_harmonics_climate_2)
+cxr_harmonics_climate_2$pred6<- fitted(fit6b)
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred6), color = "red")+
+  ylab("Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_harmonics_climate_2, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred6)), color = "red")+
+  ylab("Culex restuans caught")+
+  xlab("Time")+
+  theme_classic()
+
+# determine better model 
+AIC(fit1b)
+AIC(fit5b)
+AIC(fit2b)
+AIC(fit6b)
+BIC(fit1b)
+BIC(fit5b)
+BIC(fit2b)#
+BIC(fit6b)
+
+### calculate amplitude of 52 week period
+# pull coefs out of results of model
+beta_sin52b<-coef(fit5b)['sin52']
+beta_cos52b<-coef(fit5b)['cos52']
+
+amp52b<-sqrt(beta_sin52b^2 +beta_cos5b2^2)
+amp52b # 2.940764
+
+#### run wavelet analysis 
+source(file="/Users/zoe/Documents/Yale EMD/Year 1/Quantitative Methods in Infectious Disease Epidemiology/Lab/WaveletPkg.R")
+# mozzies caught
+wave1b <- cxr_harmonics_climate_2 %>% 
+    mutate(x = sqrt(caught_weekly)) %>% # makes everything behave better and closer to guassian signal
+   dplyr::select(x, t)
+
+cwt1b <- complete.cwt(wave1b, dj=1/26, dt=1/52)
+
+plot.cwt(cwt1b) # plots the wavelet with the power spectrum
+
+# precipitation
+wave2b <- cxr_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_ppt)) %>%
+   dplyr::select(x, t)
+cwt2b <- complete.cwt(wave2b, dj=1/26, dt=1/52)
+plot.cwt(cwt2b)
+# tmin
+wave3b <- cxr_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmin)) %>% 
+   dplyr::select(x, t)
+cwt3b <- complete.cwt(wave3b, dj=1/26, dt=1/52)
+plot.cwt(cwt3b)
+# tmean
+wave4b <- cxr_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmean)) %>% 
+   dplyr::select(x, t)
+cwt4b <- complete.cwt(wave4b, dj=1/26, dt=1/52)
+plot.cwt(cwt4b)
+# tmax
+wave5b <- cxr_harmonics_climate_2 %>% 
+    mutate(x=sqrt(weekly_avg_tmax)) %>% 
+   dplyr::select(x, t)
+cwt5b <- complete.cwt(wave5b, dj=1/26, dt=1/52)
+plot.cwt(cwt5b)
+# tdmean --> doesn't work
+#wave6b <- cxr_harmonics_climate_2 %>% 
+#    mutate(x=sqrt(weekly_avg_tdmean)) %>% 
+#   dplyr::select(x, t)
+#cwt6b <- complete.cwt(wave6b, dj=1/26, dt=1/52)
+#plot.cwt(cwt6b)
+
+#### Calculate Phase angles 
+phase1b <- phase(cwt1b, s=c(0.8, 1.2)) # pulls out the phase for whatever period you're looking at
+phase2b <- phase(cwt2b, s=c(0.8, 1.2))
+phase3b <- phase(cwt3b, s=c(0.8, 1.2))
+phase4b <- phase(cwt4b, s=c(0.8, 1.2))
+phase5b <- phase(cwt5b, s=c(0.8, 1.2))
+#phase6b <- phase(cwt6b, s=c(0.8, 1.2))
+phase7b <- phase(cwt7b, s=c(0.8, 1.2))
+phase8b <- phase(cwt8b, s=c(0.8, 1.2))
+phase9b <- phase(cwt9b, s=c(0.8, 1.2))
+phase10b <- phase(cwt10b, s=c(0.8, 1.2))
+phase11b <- phase(cwt11b, s=c(0.8, 1.2))
+phase12b <- phase(cwt12b, s=c(0.8, 1.2))
+phase13b <- phase(cwt13b, s=c(0.8, 1.2))
+phase14b <- phase(cwt14b, s=c(0.8, 1.2))
+	
+datesb <- unique(cxr_harmonics_climate_2$week_date)
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase2b,type='l', col="blue", lty=1) # ppt
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase3b,type='l', col="pink", lty=1) # tmin
+points(datesb, phase4b,type='l', col="orange", lty=1) # tmean
+points(datesb, phase5b,type='l', col="red", lty=1) # tmax
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase7b,type='l', col="pink", lty=1) # lag 2 tmean
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase8b,type='l', col="orange", lty=1) # lag 4 tmean
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase9b,type='l', col="orange red", lty=1) # lag 6 tmean
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase10b,type='l', col="magenta", lty=1) # lag 8 tmean
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase11b,type='l', col="light blue", lty=1) # lag 2 ppt
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase12b,type='l', col="navy blue", lty=1) # lag 4 ppt
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase13b,type='l', col="sea green", lty=1) # lag 6 ppt
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesb, phase14b,type='l', col="purple", lty=1) # lag 8 ppt
+
+```
+
+## Cx. restuans Coherence analysis --> At which periodicity do we have correlation?
+
+```{r coherence}
+#ppt
+coh1.2b <- complete.coh(wave1b,wave2b, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.2b)
+
+# tmin
+coh1.3b <- complete.coh(wave1b,wave3b, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.3b)
+
+# tmean
+coh1.4b <- complete.coh(wave1b,wave4b, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.4b)
+
+# tmax
+coh1.5b <- complete.coh(wave1b,wave5b, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.5b)
+
+
+```
+
+### WNV positivity harmonics 
+```{r}
+####### cx. pipiens #########
+cxp_WNV_harmonics <- core_traps_ff_surv %>%
+  filter(Species == "culex pipiens") %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes), 
+         total_WNV_daily = sum(WNV_pos)) %>%
+  dplyr::select(Date, total_caught_daily, total_WNV_daily) %>%
+  group_by(Date) %>%
+  dplyr::mutate(caught_daily = sum(total_caught_daily), 
+                WNV_daily = sum(total_WNV_daily)) %>%
+  distinct(Date, .keep_all = T) %>%
+  dplyr::select(Date, caught_daily, WNV_daily) %>%
+  group_by(Date) %>%
+  mutate(week_date = floor_date(Date, "week")) %>%
+  group_by(week_date) %>%
+  summarize(caught_weekly = sum(caught_daily), 
+            WNV_weekly = sum(WNV_daily)) %>%
+  tidyr::complete(week_date = seq.Date(from=min(week_date), to=max(week_date), by='week'), fill=list(caught_weekly=0, WNV_weekly=0)) %>%
+   mutate(week = as.factor(lubridate::week(week_date)), 
+         year = as.factor(lubridate::year(week_date)), 
+         t = row_number())
+
+# join climate and trap data
+cxp_WNV_harmonics_climate <- left_join(cxp_WNV_harmonics, weekly_trap_climate_lag, by = c("year" = "year", "week" = "week"))
+cxp_WNV_harmonics_climate <- cxp_WNV_harmonics_climate %>%
+  mutate(log_caught = log(caught_weekly), 
+         log_WNV = log(WNV_weekly)) 
+cxp_WNV_harmonics_climate$log_caught[is.infinite(cxp_WNV_harmonics_climate$log_caught)] <- 0
+cxp_WNV_harmonics_climate$log_WNV[is.infinite(cxp_WNV_harmonics_climate$log_WNV)] <- 0  
+
+# plot number against time 
+ggplot(data = cxp_WNV_harmonics_climate)+
+  geom_line(aes(week_date, caught_weekly), color = "gray")+
+  geom_line(aes(week_date, WNV_weekly), color = "navy blue")+
+  xlab("Time")+
+  ylab("Culex pipiens caught")+
+  theme_classic()
+
+ggplot(data = cxp_WNV_harmonics_climate)+
+  geom_line(aes(week_date, log_caught), color = "gray")+
+  geom_line(aes(week_date, log_WNV), color = "navy blue")+
+  ylim(-1, 15)+
+  xlab("Time")+
+  ylab("Culex pipiens Caught (log scale)")+
+  theme_classic()
+
+# add sin and cos terms
+cxp_WNV_harmonics_climate <- cxp_WNV_harmonics_climate %>%
+  mutate(sin26 = sin(2*pi*t*2/52.143), 
+         cos26 = cos(2*pi*t*2/52.143), 
+         sin52 = sin(2*pi*t/52.143),
+         cos52 = cos(2*pi*t/52.143))
+
+# harmonics for WNV positive
+wave1c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x = sqrt(WNV_weekly)) %>% 
+   dplyr::select(x, t)
+
+cwt1c <- complete.cwt(wave1c, dj=1/26, dt=1/52)
+
+plot.cwt(cwt1c) 
+
+# precipitation
+wave2c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_ppt)) %>%
+   dplyr::select(x, t)
+cwt2c <- complete.cwt(wave2c, dj=1/26, dt=1/52)
+plot.cwt(cwt2c)
+# tmin
+wave3c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmin)) %>% 
+   dplyr::select(x, t)
+cwt3c <- complete.cwt(wave3c, dj=1/26, dt=1/52)
+plot.cwt(cwt3c)
+# tmean
+wave4c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmean)) %>% 
+   dplyr::select(x, t)
+cwt4c <- complete.cwt(wave4c, dj=1/26, dt=1/52)
+plot.cwt(cwt4c)
+# tmax
+wave5c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmax)) %>% 
+   dplyr::select(x, t)
+cwt5c <- complete.cwt(wave5c, dj=1/26, dt=1/52)
+plot.cwt(cwt5c)
+
+
+# 52 + 26 week oscillations --> fits best for WNV
+fit1c <- glm.nb(log_WNV ~ sin52 + cos52 + sin26 + cos26, data = cxp_WNV_harmonics_climate)
+cxp_WNV_harmonics_climate$pred1<- fitted(fit1c)
+
+ggplot(cxp_WNV_harmonics_climate, aes(week_date, log_WNV))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred1), color = "red")+
+  ylab("WNV+ Culex pipiens caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxp_WNV_harmonics_climate, aes(week_date, exp(log_WNV)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred1)), color = "red")+
+  ylab("WNV+ Culex pipiens caught")+
+  xlab("Time")+
+  theme_classic()
+
+fit3c <- glm.nb(log_WNV ~ sin52 + cos52, data = cxp_WNV_harmonics_climate)
+cxp_WNV_harmonics_climate$pred3<- fitted(fit3c)
+
+AIC(fit1c)
+AIC(fit3c)
+BIC(fit1c)
+BIC(fit3c)
+
+# calculate phase angles 
+phase2c <- phase(cwt2c, s=c(0.8, 1.2))
+phase1c <- phase(cwt1c, s=c(0.8, 1.2))
+
+# plot phase angles
+datesc <- unique(cxp_WNV_harmonics_climate$week_date)
+plot(datesc, phase2c,type='l', col="gray", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+points(datesc, phase1c,type='l', col="navy blue", lty=1) # WNV
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase2,type='l', col="blue", lty=1) # ppt
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase3,type='l', col="pink", lty=1) # tmin
+points(dates, phase4,type='l', col="orange", lty=1) # tmean
+points(dates, phase5,type='l', col="red", lty=1) # tmax
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase7,type='l', col="pink", lty=1) # lag 2 tmean
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase8,type='l', col="orange", lty=1) # lag 4 tmean
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase9,type='l', col="orange red", lty=1) # lag 6 tmean
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase10,type='l', col="magenta", lty=1) # lag 8 tmean
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase11,type='l', col="light blue", lty=1) # lag 2 ppt
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase12,type='l', col="navy blue", lty=1) # lag 4 ppt
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase13,type='l', col="sea green", lty=1) # lag 6 ppt
+
+plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
+points(dates, phase14,type='l', col="purple", lty=1) # lag 8 ppt
+
+
+####### cx. restuans #########
+cxr_WNV_harmonics <- core_traps_ff_surv %>%
+  filter(Species == "culex restuans") %>%
+  group_by(Date) %>%
+  mutate(total_caught_daily = sum(X..Mosquitoes), 
+         total_WNV_daily = sum(WNV_pos)) %>%
+  dplyr::select(Date, total_caught_daily, total_WNV_daily) %>%
+  group_by(Date) %>%
+  dplyr::mutate(caught_daily = sum(total_caught_daily), 
+                WNV_daily = sum(total_WNV_daily)) %>%
+  distinct(Date, .keep_all = T) %>%
+  dplyr::select(Date, caught_daily, WNV_daily) %>%
+  group_by(Date) %>%
+  mutate(week_date = floor_date(Date, "week")) %>%
+  group_by(week_date) %>%
+  summarize(caught_weekly = sum(caught_daily), 
+            WNV_weekly = sum(WNV_daily)) %>%
+  tidyr::complete(week_date = seq.Date(from=min(week_date), to=max(week_date), by='week'), fill=list(caught_weekly=0, WNV_weekly=0)) %>%
+   mutate(week = as.factor(lubridate::week(week_date)), 
+         year = as.factor(lubridate::year(week_date)), 
+         t = row_number())
+
+# join climate and trap data
+cxr_WNV_harmonics_climate <- left_join(cxr_WNV_harmonics, weekly_trap_climate_lag, by = c("year" = "year", "week" = "week"))
+cxr_WNV_harmonics_climate <- cxr_WNV_harmonics_climate %>%
+  mutate(log_caught = log(caught_weekly), 
+         log_WNV = log(WNV_weekly)) 
+cxr_WNV_harmonics_climate$log_caught[is.infinite(cxr_WNV_harmonics_climate$log_caught)] <- 0
+cxr_WNV_harmonics_climate$log_WNV[is.infinite(cxr_WNV_harmonics_climate$log_WNV)] <- 0  
+
+# plot number against time 
+ggplot(data = cxr_WNV_harmonics_climate)+
+  geom_line(aes(week_date, caught_weekly), color = "green")+
+  geom_line(aes(week_date, WNV_weekly), color = "blue")+
+  xlab("Time")+
+  ylab("Culex restuans caught")+
+  theme_classic()
+
+ggplot(data = cxr_WNV_harmonics_climate)+
+  geom_line(aes(week_date, log_caught), color = "gray")+
+  geom_line(aes(week_date, log_WNV), color = "navy blue")+
+  ylim(-1, 15)+
+  xlab("Time")+
+  ylab("Culex restuans Caught (log scale)")+
+  theme_classic()
+
+# add sin and cos terms
+cxr_WNV_harmonics_climate <- cxr_WNV_harmonics_climate %>%
+  mutate(sin26 = sin(2*pi*t*2/52.143), 
+         cos26 = cos(2*pi*t*2/52.143), 
+         sin52 = sin(2*pi*t/52.143),
+         cos52 = cos(2*pi*t/52.143), 
+         sin104 = sin(2*pi*t*0.5/52.143), 
+         cos104 = cos(2*pi*t*0.5/52.143))
+
+# 52 + 26 week oscillations --> fits best for cx. pipiens population numbers
+wave1d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x = sqrt(WNV_weekly)) %>% 
+   dplyr::select(x, t)
+
+cwt1d <- complete.cwt(wave1d, dj=1/26, dt=1/52)
+
+plot.cwt(cwt1d)
+
+# precipitation
+wave2d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_ppt)) %>%
+   dplyr::select(x, t)
+cwt2d <- complete.cwt(wave2d, dj=1/26, dt=1/52)
+plot.cwt(cwt2d)
+# tmin
+wave3d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmin)) %>% 
+   dplyr::select(x, t)
+cwt3d <- complete.cwt(wave3d, dj=1/26, dt=1/52)
+plot.cwt(cwt3d)
+# tmean
+wave4d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmean)) %>% 
+   dplyr::select(x, t)
+cwt4d <- complete.cwt(wave4d, dj=1/26, dt=1/52)
+plot.cwt(cwt4d)
+# tmax
+wave5d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(weekly_avg_tmax)) %>% 
+   dplyr::select(x, t)
+cwt5d <- complete.cwt(wave5d, dj=1/26, dt=1/52)
+plot.cwt(cwt5d)
+
+
+fit2d <- glm.nb(log_caught ~ sin52 + cos52 + sin26 + cos26, data = cxr_WNV_harmonics_climate)
+cxr_WNV_harmonics_climate$pred2<- fitted(fit2c)
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, log_caught))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred2), color = "red")+
+  ylab("Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, exp(log_caught)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred2)), color = "red")+
+  ylab("Culex restuans caught")+
+  xlab("Time")+
+  theme_classic()
+
+
+# 52 + 26 week oscillations --> fits best for WNV
+fit1d <- glm.nb(log_WNV ~ sin52 + cos52 + sin26 + cos26, data = cxr_WNV_harmonics_climate)
+cxr_WNV_harmonics_climate$pred1<- fitted(fit1d)
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, log_WNV))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred1), color = "red")+
+  ylab("WNV+ Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, exp(log_WNV)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred1)), color = "red")+
+  ylab("WNV+ Culex restauns caught")+
+  xlab("Time")+
+  theme_classic()
+
+fit3d <- glm.nb(log_WNV ~ sin52 + cos52, data = cxr_WNV_harmonics_climate)
+cxr_WNV_harmonics_climate$pred3<- fitted(fit3d)
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, log_WNV))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, pred3), color = "red")+
+  ylab("WNV+ Culex restuans caught (log scale)")+
+  xlab("Time")+
+  theme_classic()
+
+ggplot(cxr_WNV_harmonics_climate, aes(week_date, exp(log_WNV)))+
+  geom_line(color = "blue")+
+  geom_line(aes(week_date, exp(pred3)), color = "red")+
+  ylab("WNV+ Culex restauns caught")+
+  xlab("Time")+
+  theme_classic()
+
+fit4d <- glm.nb(log_WNV ~ sin52 + cos52 + sin26 + cos26 + sin104 + cos104, data = cxr_WNV_harmonics_climate)
+cxr_WNV_harmonics_climate$pred4<- fitted(fit4d)
+
+AIC(fit1d)
+AIC(fit3d)
+AIC(fit4d)
+BIC(fit1d)
+BIC(fit3d)
+BIC(fit4d)
+
+# calculate phase angles 
+phase2d <- phase(cwt2d, s=c(0.8, 1.2))
+phase1d <- phase(cwt1d, s=c(0.8, 1.2))
+
+# plot phase angles
+datesd <- unique(cxr_WNV_harmonics_climate$week_date)
+plot(datesd, phase2d,type='l', col="gray", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+points(datesd, phase1d,type='l', col="navy blue", lty=1) # WNV
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase2b,type='l', col="blue", lty=1) # ppt
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase3b,type='l', col="pink", lty=1) # tmin
+points(datesb, phase4b,type='l', col="orange", lty=1) # tmean
+points(datesb, phase5b,type='l', col="red", lty=1) # tmax
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase7b,type='l', col="pink", lty=1) # lag 2 tmean
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase8b,type='l', col="orange", lty=1) # lag 4 tmean
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase9b,type='l', col="orange red", lty=1) # lag 6 tmean
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase10b,type='l', col="magenta", lty=1) # lag 8 tmean
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase11b,type='l', col="light blue", lty=1) # lag 2 ppt
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase12b,type='l', col="navy blue", lty=1) # lag 4 ppt
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase13b,type='l', col="sea green", lty=1) # lag 6 ppt
+
+plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
+points(datesb, phase14b,type='l', col="purple", lty=1) # lag 8 ppt
+
+```
+
+Comparing pipiens and restuans
+```{r}
+
+ggplot()+
+  geom_line(data = cxp_WNV_harmonics_climate, aes(week_date, WNV_weekly), color = "red")+
+  geom_line(data = cxr_WNV_harmonics_climate, aes(week_date, WNV_weekly), color = "blue")+
+  xlab("Time")+
+  ylab("WNV+ Culex caught")+
+  labs(color = c("Culex pipiens", "Culex resutans"))+
+  theme_classic()
+
+```
+
+WNV Coherence
+```{r coherence}
+##### Cx. pipiens
+#ppt
+coh1.2c <- complete.coh(wave1c,wave2c, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.2c)
+
+# tmin
+coh1.3c <- complete.coh(wave1c,wave3c, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.3c)
+
+# tmean
+coh1.4c <- complete.coh(wave1c,wave4c, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.4c)
+
+# tmax
+coh1.5c <- complete.coh(wave1c,wave5c, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.5c)
+
+######## Cx. restuans
+#ppt
+coh1.2d <- complete.coh(wave1d,wave2d, dj=1/26, mc.sim=25) #mc.sim=1000
+#plot.coh(coh1.2d)
+
+# tmin
+coh1.3d <- complete.coh(wave1d,wave3d, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.3d)
+
+# tmean
+coh1.4d <- complete.coh(wave1d,wave4d, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.4d)
+
+# tmax
+coh1.5d <- complete.coh(wave1d,wave5d, dj=1/26, mc.sim=25) #mc.sim=1000
+plot.coh(coh1.5d)
+
+
+
+```

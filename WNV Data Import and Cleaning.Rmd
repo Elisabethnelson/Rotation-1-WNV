@@ -61,16 +61,12 @@ WNV_2001_to_2021_df <- WNV_2001_to_2021_df %>%
   mutate(Date = as.Date(Date, "%d-%b-%y")) %>%
   mutate(Virus = as.factor(Virus)) 
 
-str(WNV_2001_to_2021_df)
-
-
 #look at species' sums
 species_table <- WNV_2001_to_2021_df %>%
   group_by(Species) %>%
   summarize(num_caught = sum(X..Mosquitoes)) 
 species_table <- tibble(species_table)
 species_table
-
 
 #look at trap frequencies 
 trap_table <- WNV_2001_to_2021_df %>%
@@ -107,37 +103,15 @@ core_traps_ff <- core_traps %>%
 ## Land Cover Data
 ```{r}
 ############## Import trap geo-coordinate and land-cover data ##############
-trap_location_land_cover <- read.csv("~/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Confidential/CT Location with Habitat Description.csv", sep = ",", header = TRUE)
+trap_location_land_cover <- read_csv("Data/Confidential/trap_locations_land_class.csv", 
+    col_types = cols(...5 = col_skip()))
   
 # change the formatting
 trap_location_land_cover <- trap_location_land_cover %>%
-  mutate(Location = as.factor(Location)) %>%
-  mutate(City = as.factor(City)) %>%
-  mutate(County = as.factor(County)) %>%
-  mutate(Type.of.Collection.Site = as.factor(Type.of.Collection.Site)) 
-
-############## group by type of land cover ##############
-suburban_traps <- c("BB17", "BE74", "BF38", "BP39", "CR25", "CS96", "D41", "D42", "DB76", "E44", "EH43", "EL98", "FF31", "FF45", "G37", "GL77", "GR46", "GR47", "GR48", "GS99", "GU49", "HA78", "K27", "KL100", "MC80", "ME81", "MF51", "MF83", "MS102", "MV103", "N36", "NB55", "NC32", "NC53", "NEB84", "NG85",  "NO57", "NO58", "NS6", "NV56", "OR59", "RI34", "S2", "S94", "SA105", "SH60", "SO87", "ST64", "ST65", "SW86", "T16", "TR66", "WB90", "WE93", "WF20", "WG89", "WH104", "WK92", "WL14", "WN71", "WN72", "WO73", "WP69", "WP70", "WR91", "WT68")
-rural_traps <- c("BH19", "BP40", "CA30", "CB93", "CC94", "CH23", "CL95", "CO29", "ED97", "FM18", "FR13", "H50", "HB107", "HD24", "HP97", "LD8", "LM28", "LY101", "	
-LY21", "M26", "MI82", "MO52", "NS3", "NS5", "NS7", "OL22", "P10", "RE35", "S1", "SF15", "SP108", "SR109", "SS106", "TS110", "V9", "WD12", "WS111", "LY21")
-urban_traps <- c("BP105", "NH54", "NH54 2019", "SM62", "SM63", "SM88") 
-#length(suburban_traps) + length(rural_traps) + length(urban_traps)
-
- 	
-
-
-trap_location_land_cover <- trap_location_land_cover %>%
-  mutate(updated_land_cover = case_when(
-    Location %in% suburban_traps ~ "suburban", 
-    Location %in% rural_traps ~ "rural", 
-    Location %in% urban_traps ~ "urban"
-  )) 
-  
-############## just trap locations ##############
-trap_locations <- trap_location_land_cover %>%
-  select(Location, Latitude, Longitude)
-
-
+  mutate(location = as.factor(location), 
+         latitude = as.numeric(latitude), 
+         longitude = as.numeric(longitude), 
+         land_class = as.factor(land_class)) 
 
 ```
 
@@ -221,23 +195,30 @@ trap_climate <- trap_climate %>%
 
 trap_climate_with_lag <- trap_climate %>%
   group_by(Name) %>%
-  mutate("lag_2_tmean" = lag(tmean, 14)) %>%
-  mutate("lag_4_tmean" = lag(tmean, 28)) %>%
-  mutate("lag_6_tmean" = lag(tmean, 42)) %>%
-  mutate("lag_8_tmean" = lag(tmean, 56))
+  mutate("lag_2_tmean" = lag(tmean, 14), 
+         "lag_4_tmean" = lag(tmean, 28), 
+         "lag_6_tmean" = lag(tmean, 42), 
+         "lag_8_tmean" = lag(tmean, 56), 
+         "lag_2_ppt" = lag(ppt, 14), 
+         "lag_4_ppt" = lag(ppt, 28), 
+         "lag_6_ppt" = lag(ppt, 42), 
+         "lag_8_ppt" = lag(ppt, 56)) 
 
 ```
 
 
 ## Combine Climate and Case Data and Land-Cover and Case Data
 ```{r}
-
+core_traps_ff <- left_join(core_traps_ff, trap_location_land_cover, by = c("Site" = "location"))
 core_traps_ff <- left_join(core_traps_ff, trap_climate_with_lag, by = c("Site" = "Name", "Date" = "Date"), na.rm = TRUE)
-core_traps_ff <- left_join(core_traps_ff, trap_location_land_cover, by = c("Site" = "Location"))
+
 
 # delete unnecessary columns
 core_traps_ff <- core_traps_ff %>%
-  dplyr::select(-c(Accession.., lag_date, sampleN, sample_interval, `Elevation (ft)`, Latitude.y, Longitude.y, Nearest.Address, City, State, County.y))
+  dplyr::select(-c(Accession.., lag_date, sampleN, sample_interval, `Elevation (ft)`, Latitude, Longitude))
+
+
+saveRDS(core_traps_ff, "core_traps_fixed_frequency.rds")
 
 ```
 
@@ -245,7 +226,7 @@ core_traps_ff <- core_traps_ff %>%
 ## Map CT
 ```{r}
 CT <- st_read(dsn = '/Users/zoe/Documents/Yale EMD/Rotation 1/WNV/Rotation-1-WNV/Data/Connecticut_and_Vicinity_Town_Boundary_Set/CT_Vicinity_Town_Polygon.shp')
-str(CT)
+
 CT <- CT %>%
   dplyr::filter(STATE_COD == "CT")
 CT1_a <- as(CT,'Spatial')
