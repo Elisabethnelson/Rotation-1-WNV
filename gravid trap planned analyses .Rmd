@@ -905,5 +905,5 @@ ggplot()+
 
 ```
 
-
+glm or gam controlling for current and a couple week lagged temps, but comparing winter average or winter high?
 

@@ -268,11 +268,14 @@ cwt5 <- complete.cwt(wave5, dj=1/26, dt=1/52)
 plot.cwt(cwt5)
 # tdmean --> doesn't work
 #wave6 <- cxp_harmonics_climate_2 %>% 
-#    mutate(x=sqrt(weekly_avg_tdmean)) %>% 
-#   dplyr::select(x, t)
+ #   mutate(x=sqrt(weekly_avg_tdmean)) %>% 
+ #  dplyr::select(x, t)
 #cwt6 <- complete.cwt(wave6, dj=1/26, dt=1/52)
 #plot.cwt(cwt6)
+```
+reclassify weeks for just once collecting mosquitoes
 
+```{r}
 #### Calculate Phase angles 
 phase1 <- phase(cwt1, s=c(0.8, 1.2)) # pulls out the phase for whatever period you're looking at
 phase2 <- phase(cwt2, s=c(0.8, 1.2))
@@ -280,50 +283,77 @@ phase3 <- phase(cwt3, s=c(0.8, 1.2))
 phase4 <- phase(cwt4, s=c(0.8, 1.2))
 phase5 <- phase(cwt5, s=c(0.8, 1.2))
 #phase6 <- phase(cwt6, s=c(0.8, 1.2))
-phase7 <- phase(cwt7, s=c(0.8, 1.2))
-phase8 <- phase(cwt8, s=c(0.8, 1.2))
-phase9 <- phase(cwt9, s=c(0.8, 1.2))
-phase10 <- phase(cwt10, s=c(0.8, 1.2))
-phase11 <- phase(cwt11, s=c(0.8, 1.2))
-phase12 <- phase(cwt12, s=c(0.8, 1.2))
-phase13 <- phase(cwt13, s=c(0.8, 1.2))
-phase14 <- phase(cwt14, s=c(0.8, 1.2))
-	
+
 dates <- unique(cxp_harmonics_climate_2$week_date)
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase2,type='l', col="blue", lty=1) # ppt
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # cx. pipiens
+points(dates, phase2,type='l', col="light blue", lty=1) # ppt
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # cx. pipiens
 points(dates, phase3,type='l', col="pink", lty=1) # tmin
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
+
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians")
 points(dates, phase4,type='l', col="orange", lty=1) # tmean
-points(dates, phase5,type='l', col="red", lty=1) # tmax
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase7,type='l', col="pink", lty=1) # lag 2 tmean
+plot(dates, phase1,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians")
+points(dates, phase5,type='l', col="goldenrod3", lty=1) # tmax
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase8,type='l', col="orange", lty=1) # lag 4 tmean
+#### Calculate and plot phase differences
+#Take modulo (%%) of phase difference to account for edge effects as described by Grenfell. This corrects for problems at start and begining of cycles
+phase.diff2.1= phase2-phase1 #ppt
+phase.diff3.1 = phase3 - phase1 #tmin
+phase.diff4.1 = phase4 - phase1 #tmean
+phase.diff5.1 = phase5 - phase1 #tmax
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase9,type='l', col="orange red", lty=1) # lag 6 tmean
+phasediff2.1_correct <- ((phase.diff2.1 + 3*pi) %% (2*pi)) - (pi) #ppt
+phasediff3.1_correct <- ((phase.diff3.1 + 3*pi) %% (2*pi)) - (pi) #tmin
+phasediff4.1_correct <- ((phase.diff4.1 + 3*pi) %% (2*pi)) - (pi) #tmean
+phasediff5.1_correct <- ((phase.diff5.1 + 3*pi) %% (2*pi)) - (pi) #tmax
+	#shows corrected phase diff in modulo for the 12 month phase
+	# corrects for how things get wonky at the edge of sawtooth (end of each year)
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase10,type='l', col="magenta", lty=1) # lag 8 tmean
+plot(dates,phasediff2.1_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #ppt
+plot(dates,phasediff3.1_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmin
+plot(dates,phasediff4.1_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmean
+plot(dates,phasediff5.1_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmax
+	
+### convert from radians to weeks
+#ppt
+phase.diff.wk2 <- phasediff2.1_correct * 52.143/(2*pi)
+plot(dates,phase.diff.wk2,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(dates, phase11,type='l', col="light blue", lty=1) # lag 2 ppt
+#tmin
+phase.diff.wk3 <- phasediff3.1_correct * 52.143/(2*pi)
+plot(dates,phase.diff.wk3,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
-points(dates, phase12,type='l', col="navy blue", lty=1) # lag 4 ppt
+#tmean
+phase.diff.wk4 <- phasediff4.1_correct * 52.143/(2*pi)
+plot(dates,phase.diff.wk4,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
-points(dates, phase13,type='l', col="sea green", lty=1) # lag 6 ppt
-
-plot(dates, phase1,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians")
-points(dates, phase14,type='l', col="purple", lty=1) # lag 8 ppt
+#tmax
+phase.diff.wk5 <- phasediff5.1_correct * 52.143/(2*pi)
+plot(dates,phase.diff.wk5,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = dates[313], lty = 6, col = "red")
+abline(v = dates[333], lty = 6, col = "red")
 
 ```
-
 
 ## Cx. pipiens Coherence analysis --> At which periodicity do we have correlation?
 
@@ -344,7 +374,7 @@ plot.coh(coh1.4)
 
 # tmax
 coh1.5 <- complete.coh(wave1,wave5, dj=1/26, mc.sim=25) #mc.sim=1000
-plot.coh(coh1.2)
+plot.coh(coh1.5)
 
 
 ```
@@ -578,7 +608,9 @@ plot.cwt(cwt5b)
 #   dplyr::select(x, t)
 #cwt6b <- complete.cwt(wave6b, dj=1/26, dt=1/52)
 #plot.cwt(cwt6b)
+```
 
+```{r}
 #### Calculate Phase angles 
 phase1b <- phase(cwt1b, s=c(0.8, 1.2)) # pulls out the phase for whatever period you're looking at
 phase2b <- phase(cwt2b, s=c(0.8, 1.2))
@@ -586,47 +618,107 @@ phase3b <- phase(cwt3b, s=c(0.8, 1.2))
 phase4b <- phase(cwt4b, s=c(0.8, 1.2))
 phase5b <- phase(cwt5b, s=c(0.8, 1.2))
 #phase6b <- phase(cwt6b, s=c(0.8, 1.2))
-phase7b <- phase(cwt7b, s=c(0.8, 1.2))
-phase8b <- phase(cwt8b, s=c(0.8, 1.2))
-phase9b <- phase(cwt9b, s=c(0.8, 1.2))
-phase10b <- phase(cwt10b, s=c(0.8, 1.2))
-phase11b <- phase(cwt11b, s=c(0.8, 1.2))
-phase12b <- phase(cwt12b, s=c(0.8, 1.2))
-phase13b <- phase(cwt13b, s=c(0.8, 1.2))
-phase14b <- phase(cwt14b, s=c(0.8, 1.2))
 	
 datesb <- unique(cxr_harmonics_climate_2$week_date)
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase2b,type='l', col="blue", lty=1) # ppt
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # cx. restuans
+points(datesb, phase2b,type='l', col="light blue", lty=1) # ppt
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # cx. restuans
 points(datesb, phase3b,type='l', col="pink", lty=1) # tmin
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
+
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians")
 points(datesb, phase4b,type='l', col="orange", lty=1) # tmean
-points(datesb, phase5b,type='l', col="red", lty=1) # tmax
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase7b,type='l', col="pink", lty=1) # lag 2 tmean
+plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians")
+points(datesb, phase5b,type='l', col="goldenrod3", lty=1) # tmax
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase8b,type='l', col="orange", lty=1) # lag 4 tmean
+#### Calculate and plot phase differences
+#Take modulo (%%) of phase difference to account for edge effects as described by Grenfell. This corrects for problems at start and begining of cycles
+phase.diff2.1b= phase2b - phase1b #ppt
+phase.diff3.1b = phase3b - phase1b #tmin
+phase.diff4.1b = phase4b - phase1b #tmean
+phase.diff5.1b = phase5b - phase1b #tmax
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase9b,type='l', col="orange red", lty=1) # lag 6 tmean
+phasediff2.1b_correct <- ((phase.diff2.1b + 3*pi) %% (2*pi)) - (pi) #ppt
+phasediff3.1b_correct <- ((phase.diff3.1b + 3*pi) %% (2*pi)) - (pi) #tmin
+phasediff4.1b_correct <- ((phase.diff4.1b + 3*pi) %% (2*pi)) - (pi) #tmean
+phasediff5.1b_correct <- ((phase.diff5.1b + 3*pi) %% (2*pi)) - (pi) #tmax
+	#shows corrected phase diff in modulo for the 12 month phase
+	# corrects for how things get wonky at the edge of sawtooth (end of each year)
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase10b,type='l', col="magenta", lty=1) # lag 8 tmean
+plot(datesb,phasediff2.1b_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #ppt
+plot(datesb,phasediff3.1b_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmin
+plot(datesb,phasediff4.1b_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmean
+plot(datesb,phasediff5.1b_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmax
+	
+### convert from radians to weeks
+#ppt
+phase.diff.wk2b <- phasediff2.1b_correct * 52.143/(2*pi)
+plot(datesb,phase.diff.wk2b,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase11b,type='l', col="light blue", lty=1) # lag 2 ppt
+#tmin
+phase.diff.wk3b <- phasediff3.1b_correct * 52.143/(2*pi)
+plot(datesb,phase.diff.wk3b,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase12b,type='l', col="navy blue", lty=1) # lag 4 ppt
+#tmean
+phase.diff.wk4b <- phasediff4.1b_correct * 52.143/(2*pi)
+plot(datesb,phase.diff.wk4b,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase13b,type='l', col="sea green", lty=1) # lag 6 ppt
-
-plot(datesb, phase1b,type='l', col="black", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesb, phase14b,type='l', col="purple", lty=1) # lag 8 ppt
+#tmax
+phase.diff.wk5b <- phasediff5.1b_correct * 52.143/(2*pi)
+plot(datesb,phase.diff.wk5b,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesb[103], lty = 6, col = "red")
+abline(v = datesb[125], lty = 6, col = "red")
+abline(v = datesb[209], lty = 6, col = "red")
+abline(v = datesb[229], lty = 6, col = "red")
+abline(v = datesb[887], lty = 6, col = "red")
+abline(v = datesb[906], lty = 6, col = "red")
 
 ```
 
@@ -686,10 +778,10 @@ cxp_WNV_harmonics_climate$log_WNV[is.infinite(cxp_WNV_harmonics_climate$log_WNV)
 
 # plot number against time 
 ggplot(data = cxp_WNV_harmonics_climate)+
-  geom_line(aes(week_date, caught_weekly), color = "gray")+
+  #geom_line(aes(week_date, caught_weekly), color = "gray")+
   geom_line(aes(week_date, WNV_weekly), color = "navy blue")+
   xlab("Time")+
-  ylab("Culex pipiens caught")+
+  ylab("WNV+ Culex pipiens caught")+
   theme_classic()
 
 ggplot(data = cxp_WNV_harmonics_climate)+
@@ -741,6 +833,12 @@ wave5c <- cxp_WNV_harmonics_climate %>%
 cwt5c <- complete.cwt(wave5c, dj=1/26, dt=1/52)
 plot.cwt(cwt5c)
 
+#compare to cx. pop
+wave6c <- cxp_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(caught_weekly)) %>% 
+   dplyr::select(x, t)
+cwt6c <- complete.cwt(wave6c, dj=1/26, dt=1/52)
+
 
 # 52 + 26 week oscillations --> fits best for WNV
 fit1c <- glm.nb(log_WNV ~ sin52 + cos52 + sin26 + cos26, data = cxp_WNV_harmonics_climate)
@@ -768,48 +866,145 @@ AIC(fit3c)
 BIC(fit1c)
 BIC(fit3c)
 
+```
+
+```{r}
 # calculate phase angles 
-phase2c <- phase(cwt2c, s=c(0.8, 1.2))
 phase1c <- phase(cwt1c, s=c(0.8, 1.2))
+phase2c <- phase(cwt2c, s=c(0.8, 1.2))
+phase3c <- phase(cwt3c, s=c(0.8, 1.2))
+phase4c <- phase(cwt4c, s=c(0.8, 1.2))
+phase5c <- phase(cwt5c, s=c(0.8, 1.2))
+phase6c <- phase(cwt6c, s=c(0.8, 1.2))
 
 # plot phase angles
 datesc <- unique(cxp_WNV_harmonics_climate$week_date)
-plot(datesc, phase2c,type='l', col="gray", lty=1, xlab = "Time", ylab = "Radians") # cx. pipiens
-points(datesc, phase1c,type='l', col="navy blue", lty=1) # WNV
+plot(datesc, phase1c,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. pipiens
+points(datesc, phase2c,type='l', col="light blue", lty=1) # ppt
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase2,type='l', col="blue", lty=1) # ppt
+plot(datesc, phase1c,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. pipiens
+points(datesc, phase3c,type='l', col="pink", lty=1) # tmin
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase3,type='l', col="pink", lty=1) # tmin
-points(dates, phase4,type='l', col="orange", lty=1) # tmean
-points(dates, phase5,type='l', col="red", lty=1) # tmax
+plot(datesc, phase1c,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. pipiens
+points(datesc, phase4c,type='l', col="orange", lty=1) # tmean
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase7,type='l', col="pink", lty=1) # lag 2 tmean
+plot(datesc, phase1c,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. pipiens
+points(datesc, phase5c,type='l', col="goldenrod3", lty=1) # tmax
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase8,type='l', col="orange", lty=1) # lag 4 tmean
+plot(datesc, phase1c,type='l', col="navy", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. pipiens
+points(datesc, phase6c,type='l', col="gray", lty=1) # cx. pipiens
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase9,type='l', col="orange red", lty=1) # lag 6 tmean
+#### Calculate and plot phase differences
+#Take modulo (%%) of phase difference to account for edge effects as described by Grenfell. This corrects for problems at start and begining of cycles
+phase.diff2.1c= phase2c - phase1c #ppt
+phase.diff3.1c = phase3c - phase1c #tmin
+phase.diff4.1c = phase4c - phase1c #tmean
+phase.diff5.1c = phase5c - phase1c #tmax
+phase.diff6.1c = phase6c - phase1c #cx. pipiens
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase10,type='l', col="magenta", lty=1) # lag 8 tmean
+phasediff2.1c_correct <- ((phase.diff2.1c+ 3*pi) %% (2*pi)) - (pi) #ppt
+phasediff3.1c_correct <- ((phase.diff3.1c + 3*pi) %% (2*pi)) - (pi) #tmin
+phasediff4.1c_correct <- ((phase.diff4.1c + 3*pi) %% (2*pi)) - (pi) #tmean
+phasediff5.1c_correct <- ((phase.diff5.1c + 3*pi) %% (2*pi)) - (pi) #tmax
+phasediff6.1c_correct <- ((phase.diff6.1c + 3*pi) %% (2*pi)) - (pi) #cx. pipiens
+	#shows corrected phase diff in modulo for the 12 month phase
+	# corrects for how things get wonky at the edge of sawtooth (end of each year)
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase11,type='l', col="light blue", lty=1) # lag 2 ppt
+plot(datesc,phasediff2.1c_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #ppt
+plot(datesc,phasediff3.1c_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmin
+plot(datesc,phasediff4.1c_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmean
+plot(datesc,phasediff5.1c_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmax
+plot(datesc,phasediff6.1c_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #cx. pipiens
+	
+### convert from radians to weeks
+#ppt
+phase.diff.wk2c <- phasediff2.1c_correct * 52.143/(2*pi)
+plot(datesc,phase.diff.wk2c,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase12,type='l', col="navy blue", lty=1) # lag 4 ppt
+#tmin
+phase.diff.wk3c <- phasediff3.1c_correct * 52.143/(2*pi)
+plot(datesc,phase.diff.wk3c,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase13,type='l', col="sea green", lty=1) # lag 6 ppt
+#tmean
+phase.diff.wk4c <- phasediff4.1c_correct * 52.143/(2*pi)
+plot(datesc,phase.diff.wk4c,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
-plot(datesc, phase1c,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. pipiens
-points(dates, phase14,type='l', col="purple", lty=1) # lag 8 ppt
+#tmax
+phase.diff.wk5c <- phasediff5.1c_correct * 52.143/(2*pi)
+plot(datesc,phase.diff.wk5c,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
+#cx. pipiens
+phase.diff.wk6c <- phasediff6.1c_correct * 52.143/(2*pi)
+plot(datesc,phase.diff.wk6c,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesc[264], lty = 6, col = "red")
+abline(v = datesc[271], lty = 6, col = "red")
+abline(v = datesc[529], lty = 6, col = "red")
+abline(v = datesc[536], lty = 6, col = "red")
+abline(v = datesc[893], lty = 6, col = "red")
+abline(v = datesc[901], lty = 6, col = "red")
 
+```
+
+```{r}
 ####### cx. restuans #########
 cxr_WNV_harmonics <- core_traps_ff_surv %>%
   filter(Species == "culex restuans") %>%
@@ -898,6 +1093,11 @@ wave5d <- cxr_WNV_harmonics_climate %>%
    dplyr::select(x, t)
 cwt5d <- complete.cwt(wave5d, dj=1/26, dt=1/52)
 plot.cwt(cwt5d)
+#compare to cx. pop
+wave6d <- cxr_WNV_harmonics_climate %>% 
+    mutate(x=sqrt(caught_weekly)) %>% 
+   dplyr::select(x, t)
+cwt6d <- complete.cwt(wave6d, dj=1/26, dt=1/52)
 
 
 fit2d <- glm.nb(log_caught ~ sin52 + cos52 + sin26 + cos26, data = cxr_WNV_harmonics_climate)
@@ -962,47 +1162,143 @@ AIC(fit4d)
 BIC(fit1d)
 BIC(fit3d)
 BIC(fit4d)
+```
+
+```{r}
 
 # calculate phase angles 
-phase2d <- phase(cwt2d, s=c(0.8, 1.2))
 phase1d <- phase(cwt1d, s=c(0.8, 1.2))
+phase2d <- phase(cwt2d, s=c(0.8, 1.2))
+phase3d <- phase(cwt3d, s=c(0.8, 1.2))
+phase4d <- phase(cwt4d, s=c(0.8, 1.2))
+phase5d <- phase(cwt5d, s=c(0.8, 1.2))
+phase6d <- phase(cwt6d, s=c(0.8, 1.2))
 
 # plot phase angles
 datesd <- unique(cxr_WNV_harmonics_climate$week_date)
-plot(datesd, phase2d,type='l', col="gray", lty=1, xlab = "Time", ylab = "Radians") # cx. restuans
-points(datesd, phase1d,type='l', col="navy blue", lty=1) # WNV
+plot(datesd, phase1d,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. restuans
+points(datesd, phase2d,type='l', col="light blue", lty=1) # ppt
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase2b,type='l', col="blue", lty=1) # ppt
+plot(datesd, phase1d,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. restuans
+points(datesd, phase3d,type='l', col="pink", lty=1) # tmin
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase3b,type='l', col="pink", lty=1) # tmin
-points(datesb, phase4b,type='l', col="orange", lty=1) # tmean
-points(datesb, phase5b,type='l', col="red", lty=1) # tmax
+plot(datesd, phase1d,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. restuans
+points(datesd, phase4d,type='l', col="orange", lty=1) # tmean
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase7b,type='l', col="pink", lty=1) # lag 2 tmean
+plot(datesd, phase1d,type='l', col="black", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. restuans
+points(datesd, phase5d,type='l', col="goldenrod3", lty=1) # tmax
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase8b,type='l', col="orange", lty=1) # lag 4 tmean
+plot(datesd, phase1d,type='l', col="navy", lty=1, xlab = "Year", ylab = "Radians") # WNV cx. restuans
+points(datesd, phase6d,type='l', col="gray", lty=1) # cx. restuans
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase9b,type='l', col="orange red", lty=1) # lag 6 tmean
+#### Calculate and plot phase differences
+#Take modulo (%%) of phase difference to account for edge effects as described by Grenfell. This corrects for problems at start and begining of cycles
+phase.diff2.1d= phase2d - phase1d #ppt
+phase.diff3.1d = phase3d - phase1d #tmin
+phase.diff4.1d = phase4d - phase1d #tmean
+phase.diff5.1d = phase5d - phase1d #tmax
+phase.diff6.1d = phase6d - phase1d #cx. pipiens
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase10b,type='l', col="magenta", lty=1) # lag 8 tmean
+phasediff2.1d_correct <- ((phase.diff2.1d + 3*pi) %% (2*pi)) - (pi) #ppt
+phasediff3.1d_correct <- ((phase.diff3.1d + 3*pi) %% (2*pi)) - (pi) #tmin
+phasediff4.1d_correct <- ((phase.diff4.1d + 3*pi) %% (2*pi)) - (pi) #tmean
+phasediff5.1d_correct <- ((phase.diff5.1d + 3*pi) %% (2*pi)) - (pi) #tmax
+phasediff6.1d_correct <- ((phase.diff6.1d + 3*pi) %% (2*pi)) - (pi) #cx. pipiens
+	#shows corrected phase diff in modulo for the 12 month phase
+	# corrects for how things get wonky at the edge of sawtooth (end of each year)
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase11b,type='l', col="light blue", lty=1) # lag 2 ppt
+plot(datesd,phasediff2.1d_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #ppt
+plot(datesd,phasediff3.1d_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmin
+plot(datesd,phasediff4.1d_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmean
+plot(datesd,phasediff5.1d_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #tmax
+plot(datesd,phasediff6.1d_correct,type='l',col="blue", lty=1,ylim=c(-pi,pi)) #cx. pipiens
+	
+### convert from radians to weeks
+#ppt
+phase.diff.wk2d <- phasediff2.1d_correct * 52.143/(2*pi)
+plot(datesd,phase.diff.wk2d,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase12b,type='l', col="navy blue", lty=1) # lag 4 ppt
+#tmin
+phase.diff.wk3d <- phasediff3.1d_correct * 52.143/(2*pi)
+plot(datesd,phase.diff.wk3d,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase13b,type='l', col="sea green", lty=1) # lag 6 ppt
+#tmean
+phase.diff.wk4d <- phasediff4.1d_correct * 52.143/(2*pi)
+plot(datesd,phase.diff.wk4d,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
 
-plot(datesd, phase2d,type='l', col="navy blue", lty=1, xlab = "Time", ylab = "Radians") # WNV cx. restuans
-points(datesb, phase14b,type='l', col="purple", lty=1) # lag 8 ppt
+#tmax
+phase.diff.wk5d <- phasediff5.1d_correct * 52.143/(2*pi)
+plot(datesd,phase.diff.wk5d,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
+
+#cx. pipiens
+phase.diff.wk6d <- phasediff6.1d_correct * 52.143/(2*pi)
+plot(datesd,phase.diff.wk6d,type='l',col="blue", lty=1,ylim=c(-26,26), xlab = "Year", ylab = "Phase Difference (weeks)")
+abline(h = 0, lty = 3, col = "black")
+abline(v = datesd[109], lty = 6, col = "red")
+abline(v = datesd[115], lty = 6, col = "red")
+abline(v = datesd[739], lty = 6, col = "red")
+abline(v = datesd[744], lty = 6, col = "red")
+abline(v = datesd[889], lty = 6, col = "red")
+abline(v = datesd[902], lty = 6, col = "red")
+
 
 ```
 
@@ -1041,7 +1337,7 @@ plot.coh(coh1.5c)
 ######## Cx. restuans
 #ppt
 coh1.2d <- complete.coh(wave1d,wave2d, dj=1/26, mc.sim=25) #mc.sim=1000
-#plot.coh(coh1.2d)
+plot.coh(coh1.2d)
 
 # tmin
 coh1.3d <- complete.coh(wave1d,wave3d, dj=1/26, mc.sim=25) #mc.sim=1000
